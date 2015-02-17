@@ -45,7 +45,12 @@
       <groupId>me.prettyprint</groupId>
       <artifactId>hector-core</artifactId>
       <version>1.0-5</version>
-      <!--<scope>test</scope>-->
+      <exclusions>
+        <exclusion>
+          <groupId>com.ecyrd.speed4j</groupId>
+          <artifactId>speed4j</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
 
     <dependency>

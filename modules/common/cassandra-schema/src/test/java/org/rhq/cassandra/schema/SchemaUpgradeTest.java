@@ -24,9 +24,10 @@ public class SchemaUpgradeTest {
         deploymentOptions.setUsername("rhqadmin");
         deploymentOptions.setPassword("rhqadmin");
         deploymentOptions.setStartRpc(true);
-        deploymentOptions.setHeapSize("256M");
-        deploymentOptions.setHeapNewSize("64M");
+        deploymentOptions.setHeapSize("2048M");
+        deploymentOptions.setHeapNewSize("1024M");
         deploymentOptions.setJmxPort(8399);
+        deploymentOptions.setLoggingLevel("INFO");
 
         ccm = new CassandraClusterManager(deploymentOptions);
 
