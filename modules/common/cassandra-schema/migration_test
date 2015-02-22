@@ -1,0 +1,16 @@
+#!/bin/bash
+
+mvn clean test -Dtest=PremigrationTest
+
+rm -rf target/cassandra/node0/data/rhq/*
+cp -R /Users/jsanda/tmp/COMPACTED/rhq target/cassandra/node0/data
+rm -rf target/cassandra/node0/commit_log/*
+
+./target/cassandra/node0/bin/cassandra -p cassandra.pid
+
+echo "Waiting for creation of cassandra super user..." 
+sleep 20
+
+./target/cassandra/node0/bin/cqlsh -u cassandra -p cassandra -f create_rhqadmin.cql
+
+mvn -o test -Dtest=MigrationTest -Drhq.storage.deploy=false -Drhq.storage.shutdown=false -Drhq.storage.request.read-limit=1750 -Drhq.storage.request.limit=30000

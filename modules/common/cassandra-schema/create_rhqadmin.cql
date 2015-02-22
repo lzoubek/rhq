@@ -1,0 +1,2 @@
+CREATE USER rhqadmin WITH PASSWORD 'rhqadmin';
+ALTER USER rhqadmin SUPERUSER;
