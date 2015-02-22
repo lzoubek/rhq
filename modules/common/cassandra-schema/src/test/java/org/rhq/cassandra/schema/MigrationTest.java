@@ -23,6 +23,8 @@ public class MigrationTest extends SchemaUpgradeTest {
         });
         properties.put(SchemaManager.DATA_DIR, "target");
 
+        System.setProperty("rhq.storage.nodes", "127.0.0.1");
+
         SchemaManager schemaManager = new SchemaManager("rhqadmin", "1eeb2f255e832171df8592078de921bc",
             new String[] {"127.0.0.1"}, 9042);
         schemaManager.install(properties);
