@@ -1,5 +1,30 @@
 #!/bin/bash
 
+read_limit=1500
+write_limit=30000
+astyanax_concurrency=4
+
+while getopts ":a:r:w:" opt; do
+  case $opt in
+    a)
+      astyanax_concurrency=$OPTARG
+      ;;
+    r)
+      read_limit=$OPTARG
+      ;;
+    w)
+      write_limit=$OPTARG
+      ;;
+    \?)
+      echo "Invalid option: -$OPTARG" >&2
+      exit 1
+      ;;
+    :)
+      echo "Option -$OPTARG requires an argument" >&2
+      exit 1
+  esac
+done
+
 mvn clean test -Dtest=PremigrationTest
 
 rm -rf target/cassandra/node0/data/rhq/*
@@ -13,4 +38,4 @@ sleep 20
 
 ./target/cassandra/node0/bin/cqlsh -u cassandra -p cassandra -f create_rhqadmin.cql
 
-mvn -o test -Dtest=MigrationTest -Drhq.storage.deploy=false -Drhq.storage.shutdown=false -Drhq.storage.request.read-limit=1750 -Drhq.storage.request.limit=30000
+mvn -o test -Dtest=MigrationTest -Drhq.storage.deploy=false -Drhq.storage.shutdown=false -Drhq.storage.request.read-limit=$read_limit -Drhq.storage.request.limit=$write_limit -Dastyanax.concurrency-level=$astyanax_concurency
