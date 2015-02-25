@@ -1,7 +1,7 @@
 #!/bin/bash
 
-read_limit=1500
-write_limit=30000
+read_limit=200
+write_limit=20000
 astyanax_concurrency=4
 
 while getopts ":a:r:w:" opt; do
@@ -38,4 +38,4 @@ sleep 20
 
 ./target/cassandra/node0/bin/cqlsh -u cassandra -p cassandra -f create_rhqadmin.cql
 
-mvn -o test -Dtest=MigrationTest -Drhq.storage.deploy=false -Drhq.storage.shutdown=false -Drhq.storage.request.read-limit=$read_limit -Drhq.storage.request.limit=$write_limit -Dastyanax.concurrency-level=$astyanax_concurency
+mvn -o test -Dtest=MigrationTest -Drhq.storage.deploy=false -Drhq.storage.shutdown=false -Drhq.storage.request.read-limit=$read_limit -Drhq.storage.request.limit=$write_limit -Dastyanax.concurrency-level=$astyanax_concurrency
