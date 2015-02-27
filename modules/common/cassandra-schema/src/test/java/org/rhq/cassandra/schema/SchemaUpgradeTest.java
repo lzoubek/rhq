@@ -24,8 +24,8 @@ public class SchemaUpgradeTest {
         deploymentOptions.setUsername("rhqadmin");
         deploymentOptions.setPassword("rhqadmin");
         deploymentOptions.setStartRpc(true);
-        deploymentOptions.setHeapSize("2048M");
-        deploymentOptions.setHeapNewSize("1024M");
+        deploymentOptions.setHeapSize("512M");
+        deploymentOptions.setHeapNewSize("128M");
         deploymentOptions.setJmxPort(8399);
         deploymentOptions.setLoggingLevel("INFO");
 
