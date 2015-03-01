@@ -31,6 +31,8 @@ public class SchemaUpgradeTest {
 
         ccm = new CassandraClusterManager(deploymentOptions);
 
+        System.setProperty("rhq.storage.nodes", deploymentOptions.getSeeds());
+
         if (!Boolean.valueOf(System.getProperty("rhq.storage.deploy", "true"))) {
             return;
         }
