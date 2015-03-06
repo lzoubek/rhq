@@ -90,7 +90,7 @@ public class RateMonitor implements Runnable {
 
     private static final double MIN_WRITE_RATE = 2500;
 
-    private static final double DEFAULT_WRITE_RATE_STEP_INCREASE = 25;
+    private static final double DEFAULT_WRITE_RATE_STEP_INCREASE = 100;
 
     private static final double DEFAULT_READ_RATE_STEP_INCREASE = 10;
 
@@ -266,6 +266,8 @@ public class RateMonitor implements Runnable {
         double writeRate = Math.max(writePermitsRef.get().getRate(), MIN_WRITE_RATE);
         double newWriteRate = writeRate * RATE_DECREASE_FACTOR;
 
+        newReadRate = newWriteRate * 0.04;
+
         log.info("Decreasing request rates:\n" +
             readRate + " reads/sec --> " + newReadRate + " reads/sec\n" +
             writeRate + " writes/sec --> " + newWriteRate + " writes/sec\n");
@@ -280,6 +282,8 @@ public class RateMonitor implements Runnable {
         double newReadRate = readRate + readRateStepIncrease;
         double writeRate = writePermitsRef.get().getRate();
         double newWriteRate = writeRate + writeRateStepIncrease;
+
+        newReadRate = newWriteRate * 0.04;
 
         log.info("Increasing request rates:\n" +
             readRate + " reads/sec --> " + newReadRate + " reads/sec\n" +
