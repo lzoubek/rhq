@@ -19,6 +19,7 @@ public class MigrateMetrics {
 
     public static void main(String[] args) {
         Stopwatch stopwatch = Stopwatch.createStarted();
+        SchemaManager schemaManager = null;
         try {
             log.info(System.getProperty("rhq.storage.nodes"));
 
@@ -31,13 +32,15 @@ public class MigrateMetrics {
             });
             properties.put(SchemaManager.DATA_DIR, "target");
             String[] nodes = System.getProperty("rhq.storage.nodes").split(",");
-            SchemaManager schemaManager = new SchemaManager("rhqadmin", "1eeb2f255e832171df8592078de921bc", nodes,
+            schemaManager = new SchemaManager("rhqadmin", "1eeb2f255e832171df8592078de921bc", nodes,
                 9042);
             schemaManager.install(properties);
-            schemaManager.shutdown();
         } catch (Exception e) {
             log.warn("Schema installation failed", e);
         } finally {
+            if (schemaManager != null) {
+                schemaManager.shutdown();
+            }
             stopwatch.stop();
             log.info("Finished schema upgrade in " + stopwatch.elapsed(TimeUnit.MINUTES) + " minutes");
         }
