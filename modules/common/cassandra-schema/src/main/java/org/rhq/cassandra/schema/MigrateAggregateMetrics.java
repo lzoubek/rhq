@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Properties;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -13,11 +14,10 @@ import java.util.concurrent.atomic.AtomicReference;
 import com.datastax.driver.core.Host;
 import com.datastax.driver.core.PreparedStatement;
 import com.datastax.driver.core.ResultSet;
-import com.datastax.driver.core.ResultSetFuture;
 import com.datastax.driver.core.Session;
 import com.google.common.base.Stopwatch;
-import com.google.common.util.concurrent.AsyncFunction;
 import com.google.common.util.concurrent.FutureCallback;
+import com.google.common.util.concurrent.FutureFallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
@@ -110,13 +110,33 @@ public class MigrateAggregateMetrics implements Step {
 
     private Meter migrationsMeter;
 
-    private TaskTracker migrations = new TaskTracker();
+    private CountDownLatch migrations;
 
     private RateMonitor rateMonitor;
 
     private KeyScanner keyScanner;
 
     private MigrationProgressLogger progressLogger;
+
+    private AtomicInteger readErrors = new AtomicInteger();
+
+    private AtomicInteger writeErrors = new AtomicInteger();
+
+    private FutureFallback<ResultSet> countReadErrors = new FutureFallback<ResultSet>() {
+        @Override
+        public ListenableFuture<ResultSet> create(Throwable t) throws Exception {
+            readErrors.incrementAndGet();
+            return Futures.immediateFailedFuture(t);
+        }
+    };
+
+    private FutureFallback<List<ResultSet>> countWriteErrors = new FutureFallback<List<ResultSet>>() {
+        @Override
+        public ListenableFuture<List<ResultSet>> create(Throwable t) throws Exception {
+            writeErrors.incrementAndGet();
+            return Futures.immediateFailedFuture(t);
+        }
+    };
 
     @Override
     public void setSession(Session session) {
@@ -173,6 +193,9 @@ public class MigrateAggregateMetrics implements Step {
             remaining6HourMetrics.set(scheduleIdsWith6HourData.size());
             remaining24HourMetrics.set(scheduleIdsWith24HourData.size());
 
+            migrations = new CountDownLatch(scheduleIdsWith1HourData.size() + scheduleIdsWith6HourData.size() +
+                scheduleIdsWith24HourData.size());
+
             threadPool.submit(progressLogger);
             threadPool.submit(rateMonitor);
 
@@ -180,27 +203,27 @@ public class MigrateAggregateMetrics implements Step {
             migrate6HourData(scheduleIdsWith6HourData);
             migrate24HourData(scheduleIdsWith24HourData);
 
-            migrations.finishedSchedulingTasks();
-            migrations.waitForTasksToFinish();
+            migrations.await();
 
             if (remaining1HourMetrics.get() > 0 || remaining6HourMetrics.get() > 0 ||
                 remaining24HourMetrics.get() > 0) {
-                throw new RuntimeException("There are unfinished metrics migrations. The upgrade will have to be " +
-                    "run again.");
+                throw new RuntimeException("There are unfinished metrics migrations - {one_hour: " +
+                    remaining1HourMetrics + ", six_hour: " + remaining6HourMetrics + ", twenty_four_hour: " +
+                    remaining24HourMetrics + "}. The upgrade will have to be " + "run again.");
             }
 
             dropTables();
         } catch (IOException e) {
             throw new RuntimeException("There was an unexpected I/O error. The are still " +
-                migrations.getRemainingTasks() + " outstanding migration tasks. The upgrade must be run again to " +
+                migrations.getCount() + " outstanding migration tasks. The upgrade must be run again to " +
                 "complete the migration.", e);
         } catch (AbortedException e) {
             throw new RuntimeException("The migration was aborted. There are are still " +
-                migrations.getRemainingTasks() +" outstanding migration tasks. The upgrade must be run again to " +
+                migrations.getCount() +" outstanding migration tasks. The upgrade must be run again to " +
                 "complete the migration.", e);
         } catch (InterruptedException e) {
             throw new RuntimeException("The migration was interrupted. There are are still " +
-                migrations.getRemainingTasks() +" outstanding migration tasks. The upgrade must be run again to " +
+                migrations.getCount() +" outstanding migration tasks. The upgrade must be run again to " +
                 "complete the migration.", e);
         } finally {
             stopwatch.stop();
@@ -286,10 +309,11 @@ public class MigrateAggregateMetrics implements Step {
         log.info("Scheduling data migration tasks for " + bucket + " data");
         final MigrationLog migrationLog = new MigrationLog(new File(dataDir, bucket + "_migration.log"));
         final Set<Integer> migratedScheduleIds = migrationLog.read();
-
         for (final Integer scheduleId : scheduleIds) {
-            if (!migratedScheduleIds.contains(scheduleId)) {
-                migrations.addTask();
+            if (migratedScheduleIds.contains(scheduleId)) {
+                migrations.countDown();
+                remainingMetrics.decrementAndGet();
+            } else {
                 migrateData(query, delete, bucket, remainingMetrics, migratedMetrics, migrationLog, scheduleId, ttl);
             }
         }
@@ -304,33 +328,38 @@ public class MigrateAggregateMetrics implements Step {
         final Integer scheduleId, Days ttl) {
         readPermitsRef.get().acquire();
         try {
-            ResultSetFuture queryFuture = session.executeAsync(query.bind(scheduleId));
+            ListenableFuture<ResultSet> queryFuture = session.executeAsync(query.bind(scheduleId));
+            queryFuture = Futures.withFallback(queryFuture, countReadErrors);
             ListenableFuture<List<ResultSet>> migrationFuture = Futures.transform(queryFuture,
                 new MigrateData(scheduleId, bucket, writePermitsRef.get(), session, ttl.toStandardSeconds()), threadPool);
-            ListenableFuture<ResultSet> deleteFuture = Futures.transform(migrationFuture,
-                new AsyncFunction<List<ResultSet>, ResultSet>() {
-                    @Override
-                    public ListenableFuture<ResultSet> apply(List<ResultSet> resultSets) throws Exception {
-                        writePermitsRef.get().acquire();
-                        return session.executeAsync(delete.bind(scheduleId));
-                    }
-                }, threadPool);
-            Futures.addCallback(deleteFuture, migrationFinished(query, delete, scheduleId, bucket, migrationLog,
+            migrationFuture = Futures.withFallback(migrationFuture, countWriteErrors);
+
+//            ListenableFuture<ResultSet> deleteFuture = Futures.transform(migrationFuture,
+//                new AsyncFunction<List<ResultSet>, ResultSet>() {
+//                    @Override
+//                    public ListenableFuture<ResultSet> apply(List<ResultSet> resultSets) throws Exception {
+//                        writePermitsRef.get().acquire();
+//                        return session.executeAsync(delete.bind(scheduleId));
+//                    }
+//                }, threadPool);
+//            Futures.addCallback(deleteFuture, migrationFinished(query, delete, scheduleId, bucket, migrationLog,
+//                remainingMetrics, migratedMetrics, ttl), threadPool);
+            Futures.addCallback(migrationFuture, migrationFinished(query, delete, scheduleId, bucket, migrationLog,
                 remainingMetrics, migratedMetrics, ttl), threadPool);
         } catch (Exception e) {
             log.warn("FAILED to submit " + bucket + " data migration tasks for schedule id " + scheduleId, e);
         }
     }
 
-    private FutureCallback<ResultSet> migrationFinished(final PreparedStatement query, final PreparedStatement delete,
+    private FutureCallback<List<ResultSet>> migrationFinished(final PreparedStatement query, final PreparedStatement delete,
         final Integer scheduleId, final Bucket bucket, final MigrationLog migrationLog, final AtomicInteger
         remainingMetrics, final AtomicInteger migratedMetrics, final Days ttl) {
 
-        return new FutureCallback<ResultSet>() {
+        return new FutureCallback<List<ResultSet>>() {
             @Override
-            public void onSuccess(ResultSet deleteResultSet) {
+            public void onSuccess(List<ResultSet> resultSets) {
                 try {
-                    migrations.finishedTask();
+                    migrations.countDown();
                     remainingMetrics.decrementAndGet();
                     migratedMetrics.incrementAndGet();
                     migrationLog.write(scheduleId);
@@ -382,6 +411,7 @@ public class MigrateAggregateMetrics implements Step {
                         Bucket.ONE_HOUR + ": " + remaining1HourMetrics + "\n" +
                         Bucket.SIX_HOUR + ": " + remaining6HourMetrics + "\n" +
                         Bucket.TWENTY_FOUR_HOUR + ": " + remaining24HourMetrics + "\n");
+                    log.info("ErrorCounts{read:" + readErrors + ", write: " + writeErrors + "}");
                     if (reportMigrationRates) {
                         log.info("Metrics migration rates:\n" +
                             "1 min rate: "  + migrationsMeter.oneMinuteRate() + "\n" +

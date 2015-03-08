@@ -63,8 +63,8 @@ public class MigrateData implements AsyncFunction<ResultSet, List<ResultSet>> {
             Double max = null;
             Double min = null;
             Double avg = null;
-            Seconds elapsedSeconds = Seconds.secondsBetween(DateTime.now(), new DateTime(time));
             List<Statement> statements = new ArrayList<Statement>(BATCH_SIZE);
+            int skipped = 0;
 
             for (Row row : rows) {
                 nextTime = row.getDate(0);
@@ -81,6 +81,7 @@ public class MigrateData implements AsyncFunction<ResultSet, List<ResultSet>> {
                         avg = row.getDouble(2);
                     }
                 } else {
+                    Seconds elapsedSeconds = Seconds.secondsBetween(new DateTime(time), DateTime.now());
                     if (elapsedSeconds.isLessThan(ttl)) {
                         if (isDataMissing(avg, max, min)) {
                             if (log.isDebugEnabled()) {
@@ -95,12 +96,13 @@ public class MigrateData implements AsyncFunction<ResultSet, List<ResultSet>> {
                                 statements.clear();
                             }
                         }
-
-                        time = nextTime;
-                        max = row.getDouble(2);
-                        min = null;
-                        avg = null;
+                    } else {
+                        ++skipped;
                     }
+                    time = nextTime;
+                    max = row.getDouble(2);
+                    min = null;
+                    avg = null;
                 }
             }
             if (!statements.isEmpty()) {

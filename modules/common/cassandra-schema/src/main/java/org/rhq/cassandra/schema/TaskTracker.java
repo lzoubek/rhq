@@ -52,6 +52,9 @@ class TaskTracker {
         try {
             lock.writeLock().lock();
             schedulingFinished = true;
+            if (remainingTasks == 0) {
+                allTasksFinished.countDown();
+            }
         } finally {
             lock.writeLock().unlock();
         }

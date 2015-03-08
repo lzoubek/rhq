@@ -57,17 +57,16 @@ public class ReplaceRHQ411Index {
     public void execute(DateRanges dateRanges) {
         log.info("Updating indexes");
         Stopwatch stopwatch = Stopwatch.createStarted();
+        writePermitsRef.set(RateLimiter.create(Integer.parseInt(System.getProperty(
+            "rhq.storage.request.write-limit", "20000"))));
+        // We only care about throttling writes, but RateMonitor expects a RateLimiter
+        // for both writes and reads.
+        AtomicReference<RateLimiter> readPermitsRef = new AtomicReference<RateLimiter>(
+            RateLimiter.create(100));
+        rateMonitor = new RateMonitor(readPermitsRef, writePermitsRef);
         try {
             initPreparedStatements();
 
-            writePermitsRef.set(RateLimiter.create(Integer.parseInt(System.getProperty(
-                "rhq.storage.request.write-limit", "20000"))));
-            // We only care about throttling writes, but RateMonitor expects a RateLimiter
-            // for both writes and reads.
-            AtomicReference<RateLimiter> readPermitsRef = new AtomicReference<RateLimiter>(
-                RateLimiter.create(100));
-
-            rateMonitor = new RateMonitor(readPermitsRef, writePermitsRef);
             threadPool.submit(rateMonitor);
 
             updateRawIndex(dateRanges.rawStartTime, dateRanges.rawEndTime);
