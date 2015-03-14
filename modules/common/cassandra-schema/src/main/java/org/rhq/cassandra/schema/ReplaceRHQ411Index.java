@@ -65,11 +65,11 @@ public class ReplaceRHQ411Index {
             RateLimiter.create(100));
         rateMonitor = new RateMonitor(readPermitsRef, writePermitsRef);
         try {
+            waitForSchemaPropagation();
+
             initPreparedStatements();
 
             threadPool.submit(rateMonitor);
-
-            waitForSchemaPropagation();
 
             updateRawIndex(dateRanges.rawStartTime, dateRanges.rawEndTime);
             update1HourIndex(dateRanges.oneHourStartTime, dateRanges.oneHourEndTime);
