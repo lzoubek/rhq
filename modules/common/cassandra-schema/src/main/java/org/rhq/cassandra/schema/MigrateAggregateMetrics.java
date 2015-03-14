@@ -7,6 +7,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Properties;
 import java.util.Set;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -149,6 +150,10 @@ public class MigrateAggregateMetrics implements Step {
     @Override
     public void execute() {
         log.info("Starting data migration");
+        if (System.getProperty("threadpool.fixed") != null) {
+            log.info("Using fixed queue size executor");
+            executor = new ThreadPoolExecutor(6, 6, 6, TimeUnit.SECONDS, new ArrayBlockingQueue<Runnable>(100));
+        }
         metricsRegistry = new MetricsRegistry();
         migrationsMeter = metricsRegistry.newMeter(MigrateAggregateMetrics.class, "migrations", "migrations",
             TimeUnit.MINUTES);
@@ -172,6 +177,14 @@ public class MigrateAggregateMetrics implements Step {
 
             progressLogger = new MigrationProgressLogger();
             rateMonitor = new RateMonitor(readPermitsRef, writePermitsRef);
+            if (System.getProperty("rate.monitor.2") != null) {
+                log.info("Using rateMonitor2");
+                rateMonitor = new RateMonitor2(readPermitsRef, writePermitsRef);
+            }
+            if (System.getProperty("rate.monitor.3") != null) {
+                log.info("Using rateMonitor 3");
+                rateMonitor = new RateMonitor3(readPermitsRef, writePermitsRef);
+            }
             queryExecutor = new QueryExecutor(session, readPermitsRef, writePermitsRef);
 
             keyScanner = new KeyScanner(session);
