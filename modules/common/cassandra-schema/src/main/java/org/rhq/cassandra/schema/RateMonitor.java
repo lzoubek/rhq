@@ -11,6 +11,7 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
 /**
+ * a bit tuned copy of RateMonitor
  * @author John Sanda
  */
 public class RateMonitor implements Runnable {
@@ -86,13 +87,13 @@ public class RateMonitor implements Runnable {
 
     private static final double FAILURE_THRESHOLD = 0.01;
 
-    private static final double MIN_READ_RATE = 25.0;
+    private static final double MIN_READ_RATE = 4.0;
 
-    private static final double MIN_WRITE_RATE = 2500;
+    private static final double MIN_WRITE_RATE = 100;
 
-    private static final double DEFAULT_WRITE_RATE_STEP_INCREASE = 100;
+    private static final double DEFAULT_WRITE_RATE_STEP_INCREASE = 10;
 
-    private static final double DEFAULT_READ_RATE_STEP_INCREASE = 10;
+    private static final double DEFAULT_READ_RATE_STEP_INCREASE = 4;
 
     private static final double RATE_DECREASE_FACTOR = 0.9;
 
@@ -162,7 +163,7 @@ public class RateMonitor implements Runnable {
                         readRateStepIncrease = DEFAULT_READ_RATE_STEP_INCREASE;
                         rateIncreaseCheckpoint = DEFAULT_RATE_INCREASE_CHECKPOINT;
                     } else if (fiveSecondStats.peek().thresholdExceeded) {
-                        increaseWarmup();
+                        decreaseRates();
                         oneSecondStats.clear();
                         stableRateTick = 0;
                         writeRateStepIncrease = DEFAULT_WRITE_RATE_STEP_INCREASE;
@@ -262,11 +263,9 @@ public class RateMonitor implements Runnable {
 
     private void decreaseRates() {
         double readRate = readPermitsRef.get().getRate();
-        double newReadRate = Math.max(readRate * RATE_DECREASE_FACTOR, MIN_READ_RATE);
         double writeRate = Math.max(writePermitsRef.get().getRate(), MIN_WRITE_RATE);
         double newWriteRate = writeRate * RATE_DECREASE_FACTOR;
-
-        newReadRate = newWriteRate * 0.04;
+        double newReadRate = Math.max(newWriteRate * 0.04, MIN_READ_RATE);
 
         log.info("Decreasing request rates:\n" +
             readRate + " reads/sec --> " + newReadRate + " reads/sec\n" +
@@ -279,11 +278,9 @@ public class RateMonitor implements Runnable {
 
     private void increaseRates() {
         double readRate = readPermitsRef.get().getRate();
-        double newReadRate = readRate + readRateStepIncrease;
         double writeRate = writePermitsRef.get().getRate();
         double newWriteRate = writeRate + writeRateStepIncrease;
-
-        newReadRate = newWriteRate * 0.04;
+        double newReadRate = newWriteRate * 0.04;
 
         log.info("Increasing request rates:\n" +
             readRate + " reads/sec --> " + newReadRate + " reads/sec\n" +
@@ -292,17 +289,6 @@ public class RateMonitor implements Runnable {
         warmUp = MigrateAggregateMetrics.DEFAULT_WARM_UP;
         readPermitsRef.set(RateLimiter.create(newReadRate, warmUp, TimeUnit.SECONDS));
         writePermitsRef.set(RateLimiter.create(newWriteRate, warmUp, TimeUnit.SECONDS));
-    }
-
-    private void increaseWarmup() {
-        warmUp *= 2;
-        double readRate = readPermitsRef.get().getRate();
-        double writeRate = writePermitsRef.get().getRate();
-
-        log.info("Resetting request rates with new warm up of " + warmUp + " sec");
-
-        readPermitsRef.set(RateLimiter.create(readRate, warmUp, TimeUnit.SECONDS));
-        writePermitsRef.set(RateLimiter.create(writeRate, warmUp, TimeUnit.SECONDS));
     }
 
 }

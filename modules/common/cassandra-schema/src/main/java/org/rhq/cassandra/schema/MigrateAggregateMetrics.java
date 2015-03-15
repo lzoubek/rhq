@@ -167,6 +167,9 @@ public class MigrateAggregateMetrics implements Step {
 
             progressLogger = new MigrationProgressLogger();
             rateMonitor = new RateMonitor(readPermitsRef, writePermitsRef);
+            if (System.getProperty("rate.monitor.2") != null) {
+                rateMonitor = new RateMonitor2(readPermitsRef, writePermitsRef);
+            }
 
             keyScanner = new KeyScanner(session);
             Set<Integer> scheduleIdsWith1HourData = keyScanner.scanFor1HourKeys();
