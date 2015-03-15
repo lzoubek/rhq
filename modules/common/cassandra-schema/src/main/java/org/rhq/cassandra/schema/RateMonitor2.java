@@ -64,6 +64,7 @@ public class RateMonitor2 extends RateMonitor {
 
 
     private static final double MIN_WRITE_RATE = 100;
+    private static final double MAX_WRITE_RATE = 100000;
     private static final double RATE_RW_RATIO = 0.04;
     private static final double MIN_READ_RATE = MIN_WRITE_RATE * RATE_RW_RATIO;
 
@@ -231,7 +232,7 @@ public class RateMonitor2 extends RateMonitor {
         double readRate = readPermitsRef.get().getRate();
         double writeRate = writePermitsRef.get().getRate();
 
-        double newWriteRate = writeRate * factor;
+        double newWriteRate = Math.max(writeRate * factor, MAX_WRITE_RATE);
         double newReadRate = newWriteRate * RATE_RW_RATIO;
 
         log.info("Increasing request rates with " + factor + ":\n" +
