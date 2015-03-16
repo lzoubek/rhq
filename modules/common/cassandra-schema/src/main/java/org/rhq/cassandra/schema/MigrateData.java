@@ -1,20 +1,17 @@
 package org.rhq.cassandra.schema;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 
 import com.datastax.driver.core.ResultSet;
-import com.datastax.driver.core.ResultSetFuture;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.SimpleStatement;
 import com.datastax.driver.core.Statement;
 import com.datastax.driver.core.querybuilder.Batch;
 import com.datastax.driver.core.querybuilder.QueryBuilder;
-import com.google.common.util.concurrent.AsyncFunction;
-import com.google.common.util.concurrent.Futures;
-import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.RateLimiter;
 
 import org.apache.commons.logging.Log;
@@ -25,7 +22,7 @@ import org.joda.time.Seconds;
 /**
  * @author John Sanda
  */
-public class MigrateData implements AsyncFunction<ResultSet, List<ResultSet>> {
+public class MigrateData {
 
     private static final Log log = LogFactory.getLog(MigrateData.class);
 
@@ -50,12 +47,11 @@ public class MigrateData implements AsyncFunction<ResultSet, List<ResultSet>> {
         this.ttl = ttl;
     }
 
-    @Override
-    public ListenableFuture<List<ResultSet>> apply(ResultSet resultSet) throws Exception {
+    public List<ResultSet> apply(ResultSet resultSet) throws Exception {
         try {
-            List<ResultSetFuture> insertFutures = new ArrayList<ResultSetFuture>();
+            List<ResultSet> insertFutures = new ArrayList<ResultSet>();
             if (resultSet.isExhausted()) {
-                return Futures.allAsList(insertFutures);
+                return Collections.EMPTY_LIST;
             }
             List<Row> rows = resultSet.all();
             Date time = rows.get(0).getDate(0);
@@ -108,7 +104,7 @@ public class MigrateData implements AsyncFunction<ResultSet, List<ResultSet>> {
             if (!statements.isEmpty()) {
                 insertFutures.add(writeBatch(statements));
             }
-            return Futures.allAsList(insertFutures);
+            return insertFutures;
         } catch (Exception e) {
             log.warn("An error occurred while migrating data", e);
             throw e;
@@ -123,10 +119,10 @@ public class MigrateData implements AsyncFunction<ResultSet, List<ResultSet>> {
         return false;
     }
 
-    private ResultSetFuture writeBatch(List<Statement> statements) {
+    private ResultSet writeBatch(List<Statement> statements) {
         Batch batch = QueryBuilder.batch(statements.toArray(new Statement[statements.size()]));
         writePermits.acquire();
-        return session.executeAsync(batch);
+        return session.execute(batch);
     }
 
     private SimpleStatement createInsertStatement(Date time, Double avg, Double max, Double min, int newTTL) {
