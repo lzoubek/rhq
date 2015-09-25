@@ -16,7 +16,7 @@ public class StorageClusterState {
     }
 
     public enum OperationStatus {
-        IDLE, ADD_NODE, MAINTANANCE, REMOVE_NODE
+        IDLE, ADD_NODE, MAINTENANCE, REMOVE_NODE
     }
 
     private static final String PROP_STATUS = "status";
@@ -62,6 +62,7 @@ public class StorageClusterState {
     }
 
     public void addTask(ClusterTask task) {
+        task.createdNow();
         getQueue().add(task.getBackingMap());
     }
 

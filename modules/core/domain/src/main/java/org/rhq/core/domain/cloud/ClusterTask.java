@@ -1,11 +1,14 @@
 package org.rhq.core.domain.cloud;
 
+import org.rhq.core.domain.configuration.Configuration;
+import org.rhq.core.domain.configuration.Property;
 import org.rhq.core.domain.configuration.PropertyMap;
 import org.rhq.core.domain.configuration.PropertySimple;
 import org.rhq.core.domain.operation.OperationRequestStatus;
 
 public class ClusterTask {
 
+    private static final String PROP_CREATED = "created";
     private static final String PROP_DESCRIPTION = "description";
     private static final String PROP_OPERATION_HISTORY = "operationHistory";
     private static final String PROP_RESOURCE = "resource";
@@ -18,14 +21,25 @@ public class ClusterTask {
 
     public ClusterTask() {
         this.backingMap = new PropertyMap("task");
+        createdNow();
     }
 
-    public ClusterTask(PropertyMap backingMap) {
+    ClusterTask(PropertyMap backingMap) {
         this.backingMap = backingMap;
     }
 
     public PropertyMap getBackingMap() {
         return backingMap;
+    }
+
+    public long getCreated() {
+        PropertySimple prop = this.backingMap.getSimple(PROP_CREATED);
+        return prop == null ? 0 : prop.getLongValue();
+    }
+
+    public ClusterTask createdNow() {
+        backingMap.put(new PropertySimple(PROP_CREATED, System.currentTimeMillis()));
+        return this;
     }
 
     public Integer getStorageNodeId() {
@@ -78,13 +92,25 @@ public class ClusterTask {
         return this;
     }
 
-    public PropertyMap getParams() {
-        return (PropertyMap) backingMap.get(PROP_PARAMS);
+
+    public Configuration getParams() {
+        Configuration c = new Configuration();
+        for (Property p : ((PropertyMap) backingMap.get(PROP_PARAMS)).getMap().values()) {
+            c.put(p.deepCopy(false));
+        }
+        return c;
     }
 
-    public ClusterTask setParams(PropertyMap params) {
-        params.setName(PROP_PARAMS);
-        backingMap.put(params);
+    public ClusterTask withParams(Configuration params) {
+        params = params.deepCopy(false);
+        PropertyMap map = new PropertyMap(PROP_PARAMS);
+        for (Property p : params.getMap().values()) {
+            // disconnect from original 
+            p.setConfiguration(null);
+            p.setParentMap(map);
+            map.put(p);
+        }
+        this.backingMap.put(map);
         return this;
     }
 
@@ -95,6 +121,20 @@ public class ClusterTask {
     public ClusterTask withDescription(String description) {
         backingMap.put(new PropertySimple(PROP_DESCRIPTION, description));
         return this;
+    }
+    
+    @Override
+    public String toString() {
+        return new StringBuilder("ClusterTask[")
+            .append("created="+getCreated())
+            .append(", description="+getDescription())
+            .append(", operationHistory="+getOperationHistoryId())
+            .append(", status="+getStatus())
+            .append(", storageNode="+getStorageNodeId())
+            .append(", resource="+getResourceId())
+            .append(", operationName="+getOperationName())
+            .append("]")
+            .toString();
     }
 
 }

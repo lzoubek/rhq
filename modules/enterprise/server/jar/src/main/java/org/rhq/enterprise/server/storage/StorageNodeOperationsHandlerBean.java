@@ -19,6 +19,7 @@ import org.joda.time.Days;
 
 import org.rhq.cassandra.schema.Table;
 import org.rhq.core.domain.auth.Subject;
+import org.rhq.core.domain.cloud.ClusterTask;
 import org.rhq.core.domain.cloud.StorageClusterSettings;
 import org.rhq.core.domain.cloud.StorageNode;
 import org.rhq.core.domain.common.JobTrigger;
@@ -36,6 +37,8 @@ import org.rhq.core.util.exception.ThrowableUtil;
 import org.rhq.enterprise.server.RHQConstants;
 import org.rhq.enterprise.server.auth.SubjectException;
 import org.rhq.enterprise.server.auth.SubjectManagerLocal;
+import org.rhq.enterprise.server.cloud.ClusterTaskFactory;
+import org.rhq.enterprise.server.cloud.StorageClusterStateManagerLocal;
 import org.rhq.enterprise.server.cloud.StorageNodeManagerLocal;
 import org.rhq.enterprise.server.operation.OperationManagerLocal;
 import org.rhq.enterprise.server.resource.ResourceManagerLocal;
@@ -81,6 +84,9 @@ public class StorageNodeOperationsHandlerBean implements StorageNodeOperationsHa
     @EJB
     private ResourceManagerLocal resourceManager;
 
+    @EJB
+    private StorageClusterStateManagerLocal storageClusterStateManager;
+
     @Override
     @TransactionAttribute(TransactionAttributeType.NOT_SUPPORTED)
     public void announceStorageNode(Subject subject, StorageNode storageNode) {
@@ -94,8 +100,16 @@ public class StorageNodeOperationsHandlerBean implements StorageNodeOperationsHa
 
             List<StorageNode> clusterNodes = storageNodeOperationsHandler.setMaintenancePending();
 
-            announceStorageNode(subject, storageNode, clusterNodes.get(0),
-                createPropertyListOfAddresses("addresses", asList(storageNode)));
+            if (clusterNodes.isEmpty()) {
+                throw new IndexOutOfBoundsException();
+            }
+
+            for (StorageNode clusterNode : clusterNodes) {
+                Configuration parameters = new Configuration();
+                parameters.put(createPropertyListOfAddresses("addresses", asList(storageNode)));
+                scheduleTask(clusterNode, "announce", "Announcing " + storageNode.getAddress() + " to cluster",
+                    parameters, 600);
+            }
 
         } catch (IndexOutOfBoundsException e) {
             String msg = "Aborting storage node deployment due to unexpected error while announcing storage node at "
@@ -340,6 +354,7 @@ public class StorageNodeOperationsHandlerBean implements StorageNodeOperationsHa
         if (!isStorageNodeOperation(resourceOperationHistory)) {
             return;
         }
+        storageClusterStateManager.handleResourceOperation(resourceOperationHistory);
 
         if (resourceOperationHistory.getOperationDefinition().getName().equals("announce")) {
             try {
@@ -390,13 +405,6 @@ public class StorageNodeOperationsHandlerBean implements StorageNodeOperationsHa
             } catch (Exception e) {
                 String msg = "Aborting undeployment due to unexpected error while uninstalling.";
                 logError(resourceOperationHistory, msg, e);
-            }
-        } else if (operationHistory.getOperationDefinition().getName().equals("repair")) {
-            try {
-                storageNodeOperationsHandler.handleRepair(resourceOperationHistory);
-            } catch (Exception e) {
-                String msg = "Abort scheduled repair maintenance due to unexpected error.";
-                log.error(msg, e);
             }
         }
     }
@@ -608,18 +616,19 @@ public class StorageNodeOperationsHandlerBean implements StorageNodeOperationsHa
     @Override
     public void runRepair(Subject subject) {
         List<StorageNode> clusterNodes = storageNodeManager.getClusterNodes();
-        if (clusterNodes.size() == 1) {
-            log.info("Skipping scheduled repair since this is a single-node cluster");
-            return;
+        if (clusterNodes.size() <= 1) {
+            log.info("Temporary not skipping repair even on this 1 cluster case:)");
+            //log.info("Skipping scheduled repair since this is a single-node cluster");
+            //return;
         }
 
         log.info("Starting anti-entropy repair on storage cluster: " + clusterNodes);
-
         for (StorageNode node : clusterNodes) {
             node.setErrorMessage(null);
             node.setFailedOperation(null);
             node.setMaintenancePending(true);
         }
+<<<<<<< HEAD
         StorageNode storageNode = storageNodeOperationsHandler.setMode(clusterNodes.get(0),
             StorageNode.OperationMode.MAINTENANCE);
         scheduleOperation(subject, storageNode, new Configuration(), "repair", LONG_RUNNING_OPERATION_TIMEOUT);
@@ -627,35 +636,15 @@ public class StorageNodeOperationsHandlerBean implements StorageNodeOperationsHa
 
     private void runRepair(Subject subject, StorageNode storageNode) {
         scheduleOperation(subject, storageNode, new Configuration(), "repair", LONG_RUNNING_OPERATION_TIMEOUT);
+=======
+        List<ClusterTask> tasks = ClusterTaskFactory.createRepair(clusterNodes);
+        storageClusterStateManager.scheduleTasks(tasks.toArray(new ClusterTask[] {}));
+>>>>>>> work in progress: cluster repair rewritten using ClusterTask
     }
 
     @Override
     @TransactionAttribute(TransactionAttributeType.REQUIRES_NEW)
     public void handleRepair(ResourceOperationHistory operationHistory) {
-        StorageNode storageNode = findStorageNode(operationHistory.getResource());
-        switch (operationHistory.getStatus()) {
-        case INPROGRESS:
-            // nothing to do here
-            break;
-        case CANCELED:
-            repairCanceled(storageNode, operationHistory);
-            break;
-        case FAILURE:
-            repairFailed(storageNode, operationHistory);
-            break;
-        default: // SUCCESS
-            log.info("Finished running repair on " + storageNode);
-            storageNode.setMaintenancePending(false);
-            storageNodeOperationsHandler.setMode(storageNode, StorageNode.OperationMode.NORMAL);
-            StorageNode nextNode = takeFromMaintenanceQueue();
-
-            if (nextNode == null) {
-                log.info("Finished running repair on storage cluster");
-            } else {
-                nextNode = storageNodeOperationsHandler.setMode(nextNode, StorageNode.OperationMode.MAINTENANCE);
-                runRepair(getSubject(operationHistory), nextNode);
-            }
-        }
     }
 
     @Override
@@ -920,6 +909,16 @@ public class StorageNodeOperationsHandlerBean implements StorageNodeOperationsHa
      */
     private void scheduleOperation(Subject subject, StorageNode storageNode, Configuration parameters, String operation) {
         scheduleOperation(subject, storageNode, parameters, operation, 300);
+    }
+
+    private void scheduleTask(StorageNode storageNode, String operation, String description, Configuration parameters, int timeout) {
+        parameters.setSimpleValue(OperationDefinition.TIMEOUT_PARAM_NAME, Integer.toString(timeout));
+        ClusterTask task = new ClusterTask()
+.withDescription(description)
+            .withParams(parameters)
+            .withOperationName(operation)
+            .withStorageNodeId(storageNode.getId());
+        storageClusterStateManager.scheduleTasks(task);
     }
 
     /**

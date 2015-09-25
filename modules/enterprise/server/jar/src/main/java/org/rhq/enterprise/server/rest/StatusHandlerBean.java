@@ -26,6 +26,7 @@ import javax.interceptor.Interceptors;
 import javax.ws.rs.GET;
 import javax.ws.rs.Path;
 import javax.ws.rs.Produces;
+import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.MediaType;
@@ -39,12 +40,14 @@ import org.codehaus.jackson.map.ObjectWriter;
 
 import org.jboss.resteasy.annotations.GZIP;
 
-import org.rhq.core.domain.auth.Subject;
 import org.rhq.core.domain.cloud.Server;
+import org.rhq.core.domain.cloud.StorageClusterState;
 import org.rhq.enterprise.server.auth.SubjectManagerLocal;
+import org.rhq.enterprise.server.cloud.StorageClusterStateManagerLocal;
 import org.rhq.enterprise.server.cloud.instance.ServerManagerLocal;
 import org.rhq.enterprise.server.rest.domain.Status;
 import org.rhq.enterprise.server.rest.domain.StringValue;
+import org.rhq.enterprise.server.rest.helper.ConfigurationHelper;
 import org.rhq.enterprise.server.system.SystemInfoManagerLocal;
 
 /**
@@ -65,6 +68,8 @@ public class StatusHandlerBean extends AbstractRestBean {
     private ServerManagerLocal serverManager;
     @EJB
     private SubjectManagerLocal subjectManager;
+    @EJB
+    private StorageClusterStateManagerLocal storageClusterStateManager;
 
     @GZIP
     @ApiOperation(value="Retrieve the current configured state of the server along with some runtime information." +
@@ -92,6 +97,30 @@ public class StatusHandlerBean extends AbstractRestBean {
         }
 
         return builder.build();
+    }
+
+    @GET
+    @Path("/cluster")
+    @ApiOperation(value = "Get the state of Storage Cluster")
+    public Response getClusterState() {
+        StorageClusterState state = storageClusterStateManager.getState(caller);
+        return Response.ok(ConfigurationHelper.configurationToMap(state.getConfig(), null, false)).build();
+    }
+
+    @GET
+    @Path("/cluster/run")
+    @ApiOperation(value = "Get the state of Storage Cluster")
+    public StringValue runClusterTasks(@QueryParam("force") boolean force) {
+        storageClusterStateManager.runTasks(force);
+        return new StringValue("OK");
+    }
+
+    @GET
+    @Path("/cluster/clear")
+    @ApiOperation(value = "Get the state of Storage Cluster")
+    public StringValue clearClusterTasks() {
+        storageClusterStateManager.clearTasks(true);
+        return new StringValue("OK");
     }
 
     @GET

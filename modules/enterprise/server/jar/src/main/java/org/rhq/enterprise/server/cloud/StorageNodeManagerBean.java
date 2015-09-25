@@ -1326,6 +1326,7 @@ public class StorageNodeManagerBean implements StorageNodeManagerLocal, StorageN
     }
 
     @Override
+    @TransactionAttribute(TransactionAttributeType.NOT_SUPPORTED)
     public boolean isStorageNodeAvailable(StorageNode storageNode) {
         if (storageNode != null) {
             ResourceAvailability availability = resourceManager.getLiveResourceAvailability(

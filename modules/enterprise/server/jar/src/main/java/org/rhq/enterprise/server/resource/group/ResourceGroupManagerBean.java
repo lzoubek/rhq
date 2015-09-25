@@ -1550,7 +1550,7 @@ public class ResourceGroupManagerBean implements ResourceGroupManagerLocal, Reso
         ResourceGroupCriteria criteria) {
 
         try {
-            StorageClusterState state = LookupUtil.getStorageClusterStateManager().getState();
+            StorageClusterState state = LookupUtil.getStorageClusterStateManager().getState(subject);
             log.info(state.toString());
         } catch (Exception ex) {
             log.error(ex);
