@@ -30,6 +30,7 @@ import org.rhq.core.domain.cloud.StorageClusterSettings;
 import org.rhq.core.domain.cloud.StorageNode;
 import org.rhq.core.domain.cloud.StorageNodeConfigurationComposite;
 import org.rhq.core.domain.cloud.StorageNodeLoadComposite;
+import org.rhq.core.domain.measurement.AvailabilityType;
 import org.rhq.core.domain.measurement.composite.MeasurementDataNumericHighLowComposite;
 import org.rhq.core.domain.operation.bean.ResourceOperationSchedule;
 import org.rhq.core.domain.resource.Resource;
@@ -119,4 +120,11 @@ public interface StorageNodeManagerLocal extends StorageNodeManagerRemote {
     void scheduleSnapshotManagement(Subject subject, StorageClusterSettings clusterSettings);
     
     void ackFailedOperation(Subject subject, int storageNodeId);
+
+    /**
+     * Detects live availability of given storageNode resource 
+     * @param storageNode StorageNode
+     * @return true if resource is {@link AvailabilityType#UP}
+     */
+    boolean isStorageNodeAvailable(StorageNode storageNode);
 }

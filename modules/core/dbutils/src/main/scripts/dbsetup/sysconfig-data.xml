@@ -185,6 +185,7 @@
 
       <!-- do not purge resource config history by default (0 indicates no purge) -->
       <data ID="76" PROPERTY_KEY="RESOURCE_CONFIG_HISTORY_PURGE" PROPERTY_VALUE="0" DEFAULT_PROPERTY_VALUE="0" FREAD_ONLY="FALSE"/>
+      <data ID="77" PROPERTY_KEY="STORAGE_CLUSTER_STATE_CONFIGURATION_ID" PROPERTY_VALUE="0" DEFAULT_PROPERTY_VALUE="0" FREAD_ONLY="TRUE"/>
 
     </table>
 

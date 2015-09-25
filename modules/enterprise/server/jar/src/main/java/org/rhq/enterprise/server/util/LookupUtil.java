@@ -69,6 +69,8 @@ import org.rhq.enterprise.server.cloud.PartitionEventManagerBean;
 import org.rhq.enterprise.server.cloud.PartitionEventManagerLocal;
 import org.rhq.enterprise.server.cloud.StatusManagerBean;
 import org.rhq.enterprise.server.cloud.StatusManagerLocal;
+import org.rhq.enterprise.server.cloud.StorageClusterStateManagerBean;
+import org.rhq.enterprise.server.cloud.StorageClusterStateManagerLocal;
 import org.rhq.enterprise.server.cloud.StorageNodeManagerBean;
 import org.rhq.enterprise.server.cloud.StorageNodeManagerLocal;
 import org.rhq.enterprise.server.cloud.TopologyManagerBean;
@@ -404,6 +406,10 @@ public final class LookupUtil {
                 "need to restart the server so that the storage client subsystem can be reinitialized.";
             throw new RuntimeException(msg, e);
         }
+    }
+
+    public static StorageClusterStateManagerLocal getStorageClusterStateManager() {
+        return lookupLocal(StorageClusterStateManagerBean.class);
     }
 
     public static MeasurementDefinitionManagerLocal getMeasurementDefinitionManager() {

@@ -81,8 +81,10 @@ import org.rhq.core.domain.criteria.AlertCriteria;
 import org.rhq.core.domain.criteria.ResourceConfigurationUpdateCriteria;
 import org.rhq.core.domain.criteria.ResourceOperationHistoryCriteria;
 import org.rhq.core.domain.criteria.StorageNodeCriteria;
+import org.rhq.core.domain.measurement.AvailabilityType;
 import org.rhq.core.domain.measurement.MeasurementAggregate;
 import org.rhq.core.domain.measurement.MeasurementUnits;
+import org.rhq.core.domain.measurement.ResourceAvailability;
 import org.rhq.core.domain.measurement.composite.MeasurementDataNumericHighLowComposite;
 import org.rhq.core.domain.operation.OperationRequestStatus;
 import org.rhq.core.domain.operation.ResourceOperationHistory;
@@ -1321,6 +1323,16 @@ public class StorageNodeManagerBean implements StorageNodeManagerLocal, StorageN
         } else {
             log.info("Storage node did not exist. Cannot ack/clear the failed operation.");
         }
+    }
+
+    @Override
+    public boolean isStorageNodeAvailable(StorageNode storageNode) {
+        if (storageNode != null) {
+            ResourceAvailability availability = resourceManager.getLiveResourceAvailability(
+                subjectManager.getOverlord(), storageNode.getResource().getId());
+            return AvailabilityType.UP.equals(availability.getAvailabilityType());
+        }
+        return false;
     }
 
 }

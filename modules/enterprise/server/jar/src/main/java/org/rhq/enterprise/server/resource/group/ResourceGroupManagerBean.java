@@ -59,6 +59,7 @@ import org.rhq.core.db.SQLServerDatabaseType;
 import org.rhq.core.domain.auth.Subject;
 import org.rhq.core.domain.authz.Permission;
 import org.rhq.core.domain.authz.Role;
+import org.rhq.core.domain.cloud.StorageClusterState;
 import org.rhq.core.domain.configuration.PluginConfigurationUpdate;
 import org.rhq.core.domain.configuration.ResourceConfigurationUpdate;
 import org.rhq.core.domain.criteria.GroupOperationHistoryCriteria;
@@ -93,6 +94,7 @@ import org.rhq.enterprise.server.resource.ResourceManagerLocal;
 import org.rhq.enterprise.server.resource.ResourceTypeManagerLocal;
 import org.rhq.enterprise.server.util.CriteriaQueryGenerator;
 import org.rhq.enterprise.server.util.CriteriaQueryRunner;
+import org.rhq.enterprise.server.util.LookupUtil;
 import org.rhq.enterprise.server.util.QueryUtility;
 
 /**
@@ -1546,6 +1548,13 @@ public class ResourceGroupManagerBean implements ResourceGroupManagerLocal, Reso
     @SuppressWarnings("unchecked")
     public PageList<ResourceGroupComposite> findResourceGroupCompositesByCriteria(Subject subject,
         ResourceGroupCriteria criteria) {
+
+        try {
+            StorageClusterState state = LookupUtil.getStorageClusterStateManager().getState();
+            log.info(state.toString());
+        } catch (Exception ex) {
+            log.error(ex);
+        }
 
         CriteriaAuthzType authzType = getCriteriaAuthzType(subject, criteria);
 

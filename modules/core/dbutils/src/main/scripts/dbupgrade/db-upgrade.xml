@@ -2655,7 +2655,7 @@
                 </statement>
               </schema-directSQL>
             </schemaSpec>
-
+            
             <schemaSpec version="2.167">
                 <schema-dropForeignKeys table="RHQ_BUNDLE_DEPLOYMENT" column="REPLACED_BUNDLE_DEPLOYMENT_ID" ignoreError="true"/>
                 <schema-directSQL ignoreError="true">
@@ -2663,6 +2663,15 @@
                         ALTER TABLE RHQ_BUNDLE_DEPLOYMENT ADD FOREIGN KEY (REPLACED_BUNDLE_DEPLOYMENT_ID) REFERENCES RHQ_BUNDLE_DEPLOYMENT ON DELETE CASCADE
                     </statement>
                 </schema-directSQL>
+            </schemaSpec>
+
+            <schemaSpec version="2.168">
+              <schema-directSQL ignoreError="true">
+                <statement desc="Add new storage cluster state configuration id. Initially set to 0">
+                  INSERT INTO rhq_system_config (id, property_key, property_value, default_property_value)
+                  VALUES (77, 'STORAGE_CLUSTER_STATE_CONFIGURATION_ID', '0', '0')
+                </statement>
+              </schema-directSQL>
             </schemaSpec>
 
         </dbupgrade>
