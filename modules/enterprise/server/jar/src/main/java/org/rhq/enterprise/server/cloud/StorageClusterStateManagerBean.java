@@ -264,17 +264,14 @@ public class StorageClusterStateManagerBean implements StorageClusterStateManage
             if (OperationRequestStatus.SUCCESS.equals(task.getStatus())) {
                 debug("Task " + task + " successfully completed");
                 // remove from queue
-                task = state.pollTask();
-                entityManager.remove(task.getBackingMap());
+                pollTask(state);
                 if (state.getTaskQueue().isEmpty()) {
                     state.setOperationStatus(OperationStatus.IDLE);
                 }
-                StorageNode storageNode = entityManager.find(StorageNode.class, task.getStorageNodeId());
-                storageNodeOperationsHandler.setMode(storageNode, OperationMode.NORMAL);
             } else {
                 debug("Task " + task + " failed " + operationHistory);
-                task.withStatus(operationHistory.getStatus()).withDescription(
-                    task.getDescription() + " failed: " + operationHistory.getErrorMessage());
+                task.withStatus(operationHistory.getStatus())
+                    .addDescription("failed: " + operationHistory.getErrorMessage());
             }
         } else {
             log.warn("Unable to handle Resource Operation with " + operationHistory

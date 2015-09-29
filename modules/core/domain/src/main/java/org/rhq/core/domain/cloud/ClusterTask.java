@@ -118,6 +118,9 @@ public class ClusterTask {
         return backingMap.getSimpleValue(PROP_DESCRIPTION, null);
     }
 
+    public ClusterTask addDescription(String description) {
+        return withDescription(getDescription() + " " + description);
+    }
     public ClusterTask withDescription(String description) {
         backingMap.put(new PropertySimple(PROP_DESCRIPTION, description));
         return this;
