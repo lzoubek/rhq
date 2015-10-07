@@ -1,5 +1,8 @@
 package org.rhq.enterprise.server.cloud;
 
+import java.util.Arrays;
+import java.util.List;
+
 import javax.ejb.EJB;
 import javax.ejb.Stateless;
 import javax.ejb.TransactionAttribute;
@@ -29,10 +32,12 @@ import org.rhq.core.domain.operation.ResourceOperationHistory;
 import org.rhq.core.domain.operation.bean.ResourceOperationSchedule;
 import org.rhq.core.domain.resource.Resource;
 import org.rhq.enterprise.server.RHQConstants;
+import org.rhq.enterprise.server.auth.SubjectManagerLocal;
 import org.rhq.enterprise.server.authz.RequiredPermission;
 import org.rhq.enterprise.server.configuration.ConfigurationManagerLocal;
 import org.rhq.enterprise.server.operation.OperationManagerLocal;
 import org.rhq.enterprise.server.resource.ResourceNotFoundException;
+import org.rhq.enterprise.server.storage.StorageClusterSettingsManagerLocal;
 import org.rhq.enterprise.server.storage.StorageNodeOperationsHandlerLocal;
 import org.rhq.enterprise.server.system.SystemManagerLocal;
 import org.rhq.enterprise.server.util.LookupUtil;
@@ -59,6 +64,12 @@ public class StorageClusterStateManagerBean implements StorageClusterStateManage
     private StorageNodeOperationsHandlerLocal storageNodeOperationsHandler;
 
     @EJB
+    private StorageClusterSettingsManagerLocal storageClusterSettingsManager;
+
+    @EJB
+    private SubjectManagerLocal subjectManager;
+
+    @EJB
     private StorageClusterStateManagerLocal self;
 
     @PersistenceContext(unitName = RHQConstants.PERSISTENCE_UNIT_NAME)
@@ -83,7 +94,6 @@ public class StorageClusterStateManagerBean implements StorageClusterStateManage
     private StorageClusterState loadState() {
         SystemSettings settings = systemManager.getUnmaskedSystemSettings(true);
         String configurationIdStr = settings.get(SystemSetting.STORAGE_CLUSTER_STATE_CONFIGURATION_ID);
-        log.info("Configuration id is " + configurationIdStr);
         Integer configurationId = null;
         if (configurationIdStr != null) {
             configurationId = Integer.parseInt(configurationIdStr);
@@ -151,6 +161,8 @@ public class StorageClusterStateManagerBean implements StorageClusterStateManage
         }
 
         if (task.getStatus() == null || force) {
+            // we're either scheduling new task
+            // or forced to re-schedule Failed or Running task
             debug("Executing  " + task);
             Subject overlord = LookupUtil.getSubjectManager().getOverlord();
             StorageNode storageNode = null;
@@ -192,9 +204,10 @@ public class StorageClusterStateManagerBean implements StorageClusterStateManage
                 saveState(state);
                 return;
             }
+            debug("Scheduling operation");
             int historyId = self.scheduleResourceOperationInNewTx(task, resource);
+            debug("Operation scheduled");
             task.withOperationHistoryId(historyId)
-                .withDescription("Resource operation scheduled")
                 .withStatus(OperationRequestStatus.INPROGRESS);
             saveState(state);
         }
@@ -211,6 +224,18 @@ public class StorageClusterStateManagerBean implements StorageClusterStateManage
         if (ClusterTaskFactory.OP_SET_CLUSTER_OPERATION_STATUS.equals(task.getOperationName())) {
             OperationStatus mode = OperationStatus.valueOf(task.getParams().getSimpleValue("mode"));
             self.setStatus(null, mode, null);
+            pollTask(state);
+            return;
+        }
+        if (ClusterTaskFactory.OP_NODE_ANNOUNCED.equals(task.getOperationName())) {
+            log.info("Successfully announced new storage node to storage cluster");
+            storageNodeOperationsHandler.bootstrapStorageNode(subjectManager.getOverlord(), storageNode);
+            pollTask(state);
+            return;
+        }
+        if (ClusterTaskFactory.OP_NODE_BOOTSTRAPPED.equals(task.getOperationName())) {
+            log.info("The prepare for bootstrap operation completed successfully for " + storageNode);
+            storageNodeOperationsHandler.performAddMaintenance(subjectManager.getOverlord(), storageNode);
             pollTask(state);
             return;
         }
@@ -243,13 +268,19 @@ public class StorageClusterStateManagerBean implements StorageClusterStateManage
     @Override
     public void scheduleTasks(ClusterTask... tasks) {
         if (tasks != null) {
+            scheduleTasks(Arrays.asList(tasks));
+        }
+    }
+
+    @Override
+    public void scheduleTasks(List<ClusterTask> tasks) {
+        if (tasks != null) {
             StorageClusterState state = loadState();
             for (ClusterTask task : tasks) {
                 state.addTask(task);
             }
             saveState(state);
         }
-
     }
 
     @Override

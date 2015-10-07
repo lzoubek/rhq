@@ -19,8 +19,10 @@ import org.joda.time.Days;
 
 import org.rhq.cassandra.schema.Table;
 import org.rhq.core.domain.auth.Subject;
+import org.rhq.core.domain.cloud.ClusterTask;
 import org.rhq.core.domain.cloud.StorageClusterSettings;
 import org.rhq.core.domain.cloud.StorageNode;
+import org.rhq.core.domain.cloud.StorageNode.OperationMode;
 import org.rhq.core.domain.common.JobTrigger;
 import org.rhq.core.domain.configuration.Configuration;
 import org.rhq.core.domain.configuration.Property;
@@ -36,6 +38,8 @@ import org.rhq.core.util.exception.ThrowableUtil;
 import org.rhq.enterprise.server.RHQConstants;
 import org.rhq.enterprise.server.auth.SubjectException;
 import org.rhq.enterprise.server.auth.SubjectManagerLocal;
+import org.rhq.enterprise.server.cloud.ClusterTaskFactory;
+import org.rhq.enterprise.server.cloud.StorageClusterStateManagerLocal;
 import org.rhq.enterprise.server.cloud.StorageNodeManagerLocal;
 import org.rhq.enterprise.server.operation.OperationManagerLocal;
 import org.rhq.enterprise.server.resource.ResourceManagerLocal;
@@ -52,6 +56,7 @@ public class StorageNodeOperationsHandlerBean implements StorageNodeOperationsHa
 
     private static final String STORAGE_NODE_TYPE_NAME = "RHQ Storage Node";
     private static final String STORAGE_NODE_PLUGIN_NAME = "RHQStorage";
+    private static final String KEYSPACE_TYPE_NAME = "Keyspace";
     private final static String RUN_REPAIR_PROPERTY = "runRepair";
     private final static String UPDATE_SEEDS_LIST = "updateSeedsList";
     private final static String SEEDS_LIST = "seedsList";
@@ -93,20 +98,14 @@ public class StorageNodeOperationsHandlerBean implements StorageNodeOperationsHa
         try {
             storageNodeOperationsHandler.setMode(storageNode, StorageNode.OperationMode.ANNOUNCE);
 
-            storageNodeOperationsHandler.setMaintenancePending();
-
-            List<StorageNode> clusterNodes = storageNodeOperationsHandler.setMaintenancePending();
+            List<StorageNode> clusterNodes = getStorageNodesByMode(OperationMode.NORMAL);
 
             if (clusterNodes.isEmpty()) {
-                throw new IndexOutOfBoundsException();
+                throw new IndexOutOfBoundsException("There is no StorageNode in " + OperationMode.NORMAL);
             }
 
-            for (StorageNode clusterNode : clusterNodes) {
-                Configuration parameters = new Configuration();
-                parameters.put(createPropertyListOfAddresses("addresses", asList(storageNode)));
-                scheduleTask(clusterNode, "announce", "Announcing " + storageNode.getAddress() + " to cluster",
-                    parameters, 600);
-            }
+            List<ClusterTask> tasks = ClusterTaskFactory.createAnnounce(clusterNodes, storageNode);
+            storageClusterStateManager.scheduleTasks(tasks);
 
         } catch (IndexOutOfBoundsException e) {
             String msg = "Aborting storage node deployment due to unexpected error while announcing storage node at "
@@ -124,18 +123,6 @@ public class StorageNodeOperationsHandlerBean implements StorageNodeOperationsHa
             log.error(msg, e);
             storageNodeOperationsHandler.logError(storageNode.getAddress(), msg, e);
         }
-    }
-
-    private void announceStorageNode(Subject subject, StorageNode newStorageNode, StorageNode clusterNode,
-        PropertyList addresses) {
-        if (log.isInfoEnabled()) {
-            log.info("Announcing " + newStorageNode + " to cluster node " + clusterNode);
-        }
-
-        Configuration parameters = new Configuration();
-        parameters.put(addresses);
-
-        scheduleOperation(subject, clusterNode, parameters, "announce");
     }
 
     @Override
@@ -263,12 +250,15 @@ public class StorageNodeOperationsHandlerBean implements StorageNodeOperationsHa
 
     @Override
     public void performAddMaintenance(Subject subject, StorageNode storageNode) {
-        List<StorageNode> clusterNodes = setMaintenancePendingPerformAddMaintenance(storageNode);
+        List<StorageNode> clusterNodes = getStorageNodesByMode(StorageNode.OperationMode.NORMAL);
 
-        boolean runRepair = updateSchemaIfNecessary(clusterNodes.size() - 1, clusterNodes.size());
+        boolean runRepair = updateSchemaIfNecessary(clusterNodes.size(), clusterNodes.size() + 1);
 
-        performAddNodeMaintenance(subject, storageNode, runRepair,
-            createPropertyListOfAddresses(SEEDS_LIST, clusterNodes), storageNode.getAddress());
+        StorageClusterSettings settings = storageClusterSettingsManager.getClusterSettings(subject);
+        storageNodeManager.scheduleSnapshotManagementOperationsForStorageNode(subject, storageNode, settings);
+
+        List<ClusterTask> tasks = ClusterTaskFactory.createAddMaintenance(clusterNodes, storageNode, runRepair);
+        storageClusterStateManager.scheduleTasks(tasks);
 
     }
 
@@ -300,8 +290,7 @@ public class StorageNodeOperationsHandlerBean implements StorageNodeOperationsHa
         params.put(new PropertySimple("newNodeAddress", newNodeAddress));
 
         scheduleOperation(subject, storageNode, params, "addNodeMaintenance", LONG_RUNNING_OPERATION_TIMEOUT);
-        StorageClusterSettings settings = storageClusterSettingsManager.getClusterSettings(subject);
-        storageNodeManager.scheduleSnapshotManagementOperationsForStorageNode(subject, storageNode, settings);
+
     }
 
     @Override
@@ -415,37 +404,6 @@ public class StorageNodeOperationsHandlerBean implements StorageNodeOperationsHa
     @Override
     @TransactionAttribute(TransactionAttributeType.REQUIRES_NEW)
     public void handleAnnounce(ResourceOperationHistory resourceOperationHistory) {
-        StorageNode storageNode = findStorageNode(resourceOperationHistory.getResource());
-        Configuration parameters = resourceOperationHistory.getParameters();
-        PropertyList addresses = parameters.getList("addresses");
-        StorageNode newStorageNode;
-
-        switch (resourceOperationHistory.getStatus()) {
-        case INPROGRESS:
-            // nothing to do here
-            return;
-        case CANCELED:
-            newStorageNode = findStorageNodeByAddress(getAddress(addresses));
-            deploymentOperationCanceled(storageNode, resourceOperationHistory, newStorageNode);
-        case FAILURE:
-            newStorageNode = findStorageNodeByAddress(getAddress(addresses));
-            deploymentOperationFailed(storageNode, resourceOperationHistory, newStorageNode);
-            return;
-        default: // SUCCESS
-            storageNode.setMaintenancePending(false);
-            StorageNode nextNode = takeFromMaintenanceQueue();
-            Subject subject = getSubject(resourceOperationHistory);
-            newStorageNode = findStorageNodeByAddress(getAddress(addresses));
-
-            if (nextNode == null) {
-                log.info("Successfully announced new storage node to storage cluster");
-                newStorageNode = storageNodeOperationsHandler.setMode(newStorageNode,
-                    StorageNode.OperationMode.BOOTSTRAP);
-                storageNodeOperationsHandler.bootstrapStorageNode(subject, newStorageNode);
-            } else {
-                announceStorageNode(subject, newStorageNode, nextNode, addresses.deepCopy(false));
-            }
-        }
     }
 
     @Override
@@ -488,63 +446,13 @@ public class StorageNodeOperationsHandlerBean implements StorageNodeOperationsHa
     @Override
     @TransactionAttribute(TransactionAttributeType.REQUIRES_NEW)
     public void handlePrepareForBootstrap(ResourceOperationHistory operationHistory) {
-        StorageNode newStorageNode = findStorageNode(operationHistory.getResource());
-        switch (operationHistory.getStatus()) {
-        case INPROGRESS:
-            // nothing to do here
-            return;
-        case CANCELED:
-            deploymentOperationCanceled(newStorageNode, operationHistory);
-            return;
-        case FAILURE:
-            deploymentOperationFailed(newStorageNode, operationHistory);
-            return;
-        default: // SUCCESS
-            log.info("The prepare for bootstrap operation completed successfully for " + newStorageNode);
-            newStorageNode = storageNodeOperationsHandler.setMode(newStorageNode,
-                StorageNode.OperationMode.ADD_MAINTENANCE);
-            Subject subject = getSubject(operationHistory);
-            performAddMaintenance(subject, newStorageNode);
-        }
+
     }
 
     @Override
     @TransactionAttribute(TransactionAttributeType.REQUIRES_NEW)
     public void handleAddNodeMaintenance(ResourceOperationHistory resourceOperationHistory) {
-        StorageNode storageNode = findStorageNode(resourceOperationHistory.getResource());
-        Configuration parameters = resourceOperationHistory.getParameters();
-        String newNodeAddress = parameters.getSimpleValue("newNodeAddress");
-        StorageNode newStorageNode;
 
-        switch (resourceOperationHistory.getStatus()) {
-        case INPROGRESS:
-            // nothing to do here
-            return;
-        case CANCELED:
-            newStorageNode = findStorageNodeByAddress(newNodeAddress);
-            deploymentOperationCanceled(storageNode, resourceOperationHistory, newStorageNode);
-            return;
-        case FAILURE:
-            newStorageNode = findStorageNodeByAddress(newNodeAddress);
-            deploymentOperationFailed(storageNode, resourceOperationHistory, newStorageNode);
-            return;
-        default: // SUCCESS
-            log.info("Finished running add node maintenance for " + storageNode);
-            storageNode.setMaintenancePending(false);
-            StorageNode nextNode = takeFromMaintenanceQueue();
-            newStorageNode = findStorageNodeByAddress(newNodeAddress);
-
-            if (nextNode == null) {
-                log.info("Finished running add node maintenance on all cluster nodes");
-                storageNodeOperationsHandler.setMode(newStorageNode, StorageNode.OperationMode.NORMAL);
-            } else {
-
-                boolean runRepair = parameters.getSimple(RUN_REPAIR_PROPERTY).getBooleanValue();
-                PropertyList seedsList = parameters.getList(SEEDS_LIST).deepCopy(false);
-                Subject subject = getSubject(resourceOperationHistory);
-                performAddNodeMaintenance(subject, nextNode, runRepair, seedsList, newNodeAddress);
-            }
-        }
     }
 
     @Override
@@ -553,22 +461,10 @@ public class StorageNodeOperationsHandlerBean implements StorageNodeOperationsHa
         List<StorageNode> clusterNodes = storageNodeOperationsHandler
             .getStorageNodesByMode(StorageNode.OperationMode.NORMAL);
 
-        clusterNodes.add(storageNode);
-        prepareNodeForBootstrap(subject, storageNode, createPropertyListOfAddresses("addresses", clusterNodes));
+        StorageClusterSettings settings = storageClusterSettingsManager.getClusterSettings(subjectManager.getOverlord());
+        storageClusterStateManager.scheduleTasks(ClusterTaskFactory.createBootstrap(clusterNodes, storageNode, settings));
     }
 
-    private void prepareNodeForBootstrap(Subject subject, StorageNode storageNode, PropertyList addresses) {
-        if (log.isInfoEnabled()) {
-            log.info("Preparing to bootstrap " + storageNode + " into cluster...");
-        }
-        StorageClusterSettings clusterSettings = storageClusterSettingsManager.getClusterSettings(subject);
-        Configuration parameters = new Configuration();
-        parameters.put(new PropertySimple("cqlPort", clusterSettings.getCqlPort()));
-        parameters.put(new PropertySimple("gossipPort", clusterSettings.getGossipPort()));
-        parameters.put(addresses);
-
-        scheduleOperation(subject, storageNode, parameters, "prepareForBootstrap");
-    }
 
     @Override
     @TransactionAttribute(TransactionAttributeType.REQUIRES_NEW)
@@ -627,7 +523,7 @@ public class StorageNodeOperationsHandlerBean implements StorageNodeOperationsHa
         }
 
         List<ClusterTask> tasks = ClusterTaskFactory.createRepair(clusterNodes);
-        storageClusterStateManager.scheduleTasks(tasks.toArray(new ClusterTask[] {}));
+        storageClusterStateManager.scheduleTasks(tasks);
     }
 
     @Override
@@ -819,8 +715,9 @@ public class StorageNodeOperationsHandlerBean implements StorageNodeOperationsHa
         }
 
         ResourceType resourceType = operationHistory.getOperationDefinition().getResourceType();
-        return resourceType.getName().equals(STORAGE_NODE_TYPE_NAME)
-            && resourceType.getPlugin().equals(STORAGE_NODE_PLUGIN_NAME);
+        return resourceType.getPlugin().equals(STORAGE_NODE_PLUGIN_NAME)
+            && (resourceType.getName().equals(STORAGE_NODE_TYPE_NAME) || resourceType.getName().equals(
+                KEYSPACE_TYPE_NAME));
     }
 
     private boolean updateSchemaIfNecessary(int previousClusterSize, int newClusterSize) {

@@ -1,5 +1,7 @@
 package org.rhq.enterprise.server.cloud;
 
+import java.util.List;
+
 import javax.ejb.Local;
 
 import org.rhq.core.domain.auth.Subject;
@@ -17,6 +19,8 @@ public interface StorageClusterStateManagerLocal {
 
     void handleResourceOperation(ResourceOperationHistory operationHistory);
     void scheduleTasks(ClusterTask... tasks);
+
+    void scheduleTasks(List<ClusterTask> tasks);
 
     void clearTasks(boolean force);
     void runTasks(boolean force);
