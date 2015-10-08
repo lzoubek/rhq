@@ -178,7 +178,7 @@ public class ClusterTaskFactory {
         return new ClusterTask()
             .withDescription("Run repair on " + node.getAddress())
             .withParams(parameters)
-            .withOperationName("repair")
+            .withOperationName(operationName)
             .withStorageNodeId(node.getId());
     }
     

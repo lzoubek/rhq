@@ -88,7 +88,7 @@ public class StorageClusterStateManagerBean implements StorageClusterStateManage
     }
 
     private void pollTask(StorageClusterState state) {
-        entityManager.remove(state.pollTask().getBackingMap());
+        state.pollTask();
     }
 
     private StorageClusterState loadState() {

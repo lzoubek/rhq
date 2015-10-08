@@ -221,7 +221,6 @@ public class ReplicationFactorCheckJob extends AbstractStatefulJob {
         if (clusterSize >= 2) {
             return 2;
         }
-
         return 1;
     }
 
