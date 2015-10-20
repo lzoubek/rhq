@@ -25,6 +25,8 @@ public interface StorageClusterStateManagerLocal {
     void clearTasks(boolean force);
     void runTasks(boolean force);
 
+    void setFirstTaskRunning();
+
     int scheduleResourceOperationInNewTx(ClusterTask task, Resource resource);
     void setStatus(Status status, OperationStatus operationStatus, String message);
 }

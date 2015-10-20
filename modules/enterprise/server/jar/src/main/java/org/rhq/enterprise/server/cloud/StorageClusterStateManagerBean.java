@@ -150,7 +150,7 @@ public class StorageClusterStateManagerBean implements StorageClusterStateManage
         }
         if (!force) {
             if (OperationRequestStatus.INPROGRESS.equals(task.getStatus())) {
-                debug("Task " + task + " in progress.");
+                debug("Task " + task + " is " + OperationRequestStatus.INPROGRESS + " exitting");
                 return;
             }
             if (OperationRequestStatus.FAILURE.equals(task.getStatus())) {
@@ -170,8 +170,16 @@ public class StorageClusterStateManagerBean implements StorageClusterStateManage
                 storageNode = entityManager.find(StorageNode.class, task.getStorageNodeId());
             }
             if (task.getOperationName().startsWith(NON_RESOURCE_OPERATION_PREFIX)) {
-                debug("Running server code");
-                runNonResourceOperation(state, task, storageNode);
+                debug("Running non-resource task");
+                // mark non-resource task as INPROGRESS
+                self.setFirstTaskRunning();
+                try {
+                    runNonResourceOperation(state, task, storageNode);
+                } catch (Exception e) {
+                    log.error("Failed to run non-resource task", e);
+                    task.withStatus(OperationRequestStatus.FAILURE)
+                        .addDescription(" failed: "+e.getMessage());
+                }
                 return;
             }
             if (storageNode == null) {
@@ -236,6 +244,24 @@ public class StorageClusterStateManagerBean implements StorageClusterStateManage
         if (ClusterTaskFactory.OP_NODE_BOOTSTRAPPED.equals(task.getOperationName())) {
             log.info("The prepare for bootstrap operation completed successfully for " + storageNode);
             storageNodeOperationsHandler.performAddMaintenance(subjectManager.getOverlord(), storageNode);
+            pollTask(state);
+            return;
+        }
+        if (ClusterTaskFactory.OP_NODE_MAINTENANCE_REMOVED.equals(task.getOperationName())) {
+            log.info("Finished running decomission on " + storageNode
+                + " and remove node maintenance on all cluster nodes");
+            storageNodeOperationsHandler.unannounceStorageNode(subjectManager.getOverlord(), storageNode);
+            pollTask(state);
+            return;
+        }
+        if (ClusterTaskFactory.OP_NODE_UNANNOUNCED.equals(task.getOperationName())) {
+            log.info("Successfully unannounced " + storageNode + " to storage cluster");
+            storageNodeOperationsHandler.uninstall(subjectManager.getOverlord(), storageNode);
+            pollTask(state);
+            return;
+        }
+        if (ClusterTaskFactory.OP_NODE_REMOVED.equals(task.getOperationName())) {
+            storageNodeOperationsHandler.finishUninstall(subjectManager.getOverlord(), storageNode);
             pollTask(state);
             return;
         }
@@ -328,6 +354,16 @@ public class StorageClusterStateManagerBean implements StorageClusterStateManage
         ClusterTask task = null;
         while ((task = state.pollTask()) != null) {
             entityManager.remove(task.getBackingMap());
+        }
+
+    }
+
+    @Override
+    public void setFirstTaskRunning() {
+        StorageClusterState state = loadState();
+        ClusterTask task = state.peekTask();
+        if (task != null) {
+            task.withStatus(OperationRequestStatus.INPROGRESS);
         }
 
     }

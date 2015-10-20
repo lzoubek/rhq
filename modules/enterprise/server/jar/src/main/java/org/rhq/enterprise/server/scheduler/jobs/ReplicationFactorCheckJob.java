@@ -42,6 +42,8 @@ import org.quartz.JobExecutionContext;
 import org.quartz.JobExecutionException;
 
 import org.rhq.cassandra.util.ClusterBuilder;
+import org.rhq.core.domain.cloud.StorageClusterState;
+import org.rhq.core.domain.cloud.StorageClusterState.OperationStatus;
 import org.rhq.core.domain.cloud.StorageNode;
 import org.rhq.core.domain.common.composite.SystemSetting;
 import org.rhq.core.domain.common.composite.SystemSettings;
@@ -63,6 +65,13 @@ public class ReplicationFactorCheckJob extends AbstractStatefulJob {
     @Override
     public void executeJobCode(JobExecutionContext context) throws JobExecutionException {
         debug(getClass().getName() + " job starting");
+        StorageClusterState state = LookupUtil.getStorageClusterStateManager().getState(
+            LookupUtil.getSubjectManager().getOverlord());
+        if (!OperationStatus.IDLE.equals(state.getOperationStatus())) {
+            log.info("Skipping " + getClass().getName() + " because cluster is OperationStatus is not "
+                + OperationStatus.IDLE);
+            return;
+        }
         StorageNodeManagerLocal storageNodeManager = LookupUtil.getStorageNodeManager();
         SystemSettings settings = LookupUtil.getSystemManager().getObfuscatedSystemSettings(true);
 

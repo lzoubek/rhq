@@ -31,7 +31,9 @@ public class ClusterTaskFactory {
     public static String OP_SET_CLUSTER_OPERATION_STATUS = "#setClusterOperationStatus";
     public static String OP_NODE_ANNOUNCED = "#handleNodeAnnounced";
     public static String OP_NODE_BOOTSTRAPPED = "#handleNodeBootstrapped";
-    public static String OP_UPDATE_SCHEMA = "#updateSchemaIfNeeded";
+    public static String OP_NODE_MAINTENANCE_REMOVED = "#handleDecomission";
+    public static String OP_NODE_UNANNOUNCED = "#handleUnannounced";
+    public static String OP_NODE_REMOVED = "#handleRemoved";
     
     private static final int LONG_RUNNING_OPERATION_TIMEOUT = Days.SEVEN.toStandardSeconds().getSeconds();
     
@@ -95,6 +97,13 @@ public class ClusterTaskFactory {
         return tasks;
     }
 
+    /**
+     * creates task to perform ADD_MAINTANANCE phase of storage node deployment
+     * @param storageNodes existing nodes
+     * @param newNode node being deployed
+     * @param needRepair whether repair needs to run on all nodes
+     * @return list of tasks
+     */
     public static List<ClusterTask> createAddMaintenance(List<StorageNode> storageNodes, StorageNode newNode,
         boolean needRepair) {
         List<ClusterTask> tasks = new ArrayList<ClusterTask>();
@@ -132,6 +141,97 @@ public class ClusterTaskFactory {
         return tasks;
     }
 
+    /**
+     * schedules tasks for DECOMISSION and REMOVE_MAINTENANCE phases
+     * @param clusterNodes
+     * @param leaving
+     * @param needRepair
+     * @return
+     */
+    public static List<ClusterTask> createDecomission(List<StorageNode> clusterNodes,  StorageNode leaving, boolean needRepair) {
+        List<ClusterTask> tasks = new ArrayList<ClusterTask>();
+        // - run decomission on node which is leaving
+        // - switch to MAINTENANCE
+        // - for each node left in cluster
+        //  - run repair (if needed)
+        //  - run cleanup
+        //  - run updateSeedlist
+        tasks.add(createOperationStatusTask(OperationStatus.REMOVE_NODE));
+        tasks.add(createSetModeTask(leaving, OperationMode.DECOMMISSION));
+        tasks.add(
+            new ClusterTask()
+                .withDescription("Run [decommission] operation on "+leaving.getAddress())
+                .withStorageNodeId(leaving.getId())
+                .withOperationName("decommission")
+                .withParams(Configuration.builder().build())
+            );
+        tasks.add(createOperationStatusTask(OperationStatus.MAINTENANCE));
+        tasks.add(createSetModeTask(leaving, OperationMode.REMOVE_MAINTENANCE));
+        // new seedList (leaving node should not be present)
+        ListInMap<Builder> list = Configuration.builder()
+            .openList("seedsList", "address");
+        for (StorageNode node : clusterNodes) {
+            list.addSimple(node.getAddress());
+        }
+        for (StorageNode node : clusterNodes) {
+            if (needRepair) {
+                tasks.addAll(createRepairTasksByKeyspace(node));
+            }
+            tasks.addAll(createCleanupTasksByKeyspace(node));
+            tasks.add(new ClusterTask()
+                .withDescription("Update seeds list for "+node.getAddress())
+                .withOperationName("updateSeedsList")
+                .withStorageNodeId(node.getId())
+                .withParams(list.closeList().build().deepCopy())
+            );
+        }
+        tasks.add(new ClusterTask()
+            .withOperationName(OP_NODE_MAINTENANCE_REMOVED)
+            .withDescription("StorageNode decomission and REMOVE_MAINTENANCE phases are node, moving to UNANNOUNCE")
+            .withStorageNodeId(leaving.getId()));
+        return tasks;
+    }
+    
+    public static List<ClusterTask> createUnannounce(List<StorageNode> clusterNodes, StorageNode leaving) {
+        List<ClusterTask> tasks = new ArrayList<ClusterTask>();
+        tasks.add(createSetModeTask(leaving, OperationMode.UNANNOUNCE));
+        
+        ListInMap<Builder> list = Configuration.builder()
+            .openList("addresses", "address");
+        
+        list.addSimple(leaving.getAddress());
+
+        for (StorageNode node : clusterNodes) {
+            tasks.add(new ClusterTask()
+                .withStorageNodeId(node.getId())
+                .withDescription("Run [unannounce] on "+node.getAddress())
+                .withOperationName("unannounce")
+                .withParams(list.closeList().build())
+                );
+        }
+        tasks.add(new ClusterTask()
+            .withOperationName(OP_NODE_UNANNOUNCED)
+            .withDescription("StorageNode UNANNOUNCE phase completed, moving to UNINSTALL phase")
+            .withStorageNodeId(leaving.getId()));
+        return tasks;
+    }
+
+    public static List<ClusterTask> createUninstall(StorageNode storageNode) {
+        List<ClusterTask> tasks = new ArrayList<ClusterTask>();
+        tasks.add(new ClusterTask()
+            .withDescription("Run [uninstall] operation on " + storageNode.getAddress())
+            .withStorageNodeId(storageNode.getId())
+            .withOperationName("uninstall")
+            .withParams(Configuration.builder().build()));
+        tasks.add(new ClusterTask()
+            .withDescription("StorageNode UNINSTALLED, finish uninstallation")
+            .withStorageNodeId(storageNode.getId())
+            .withOperationName(OP_NODE_REMOVED));
+
+        tasks.add(createOperationStatusTask(OperationStatus.IDLE));
+        return tasks;
+    }
+
     public static List<ClusterTask> createRepair(List<StorageNode> storageNodes) {
         List<ClusterTask> tasks = new ArrayList<ClusterTask>();
         tasks.add(createOperationStatusTask(OperationStatus.MAINTENANCE));
@@ -164,7 +264,7 @@ public class ClusterTaskFactory {
             .closeList()
             .build();
         return new ClusterTask()
-            .withDescription("Announce StorageNode "+announced.getAddress()+" to "+node.getAddress())
+            .withDescription("Announce new StorageNode "+announced.getAddress()+" to node "+node.getAddress())
             .withOperationName("announce")
             .withParams(parameters)
             .withStorageNodeId(node.getId());

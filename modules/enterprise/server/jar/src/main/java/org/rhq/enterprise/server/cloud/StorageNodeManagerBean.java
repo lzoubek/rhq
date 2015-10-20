@@ -275,7 +275,7 @@ public class StorageNodeManagerBean implements StorageNodeManagerLocal, StorageN
         c.fetchResource(true);
         List<StorageNode> storageNodes = storageNodeManager.findStorageNodesByCriteria(subject, c);
         if (storageNodes.isEmpty()) {
-            throw new RuntimeException("Storage node not found, can not undeploy " + storageNode);
+            throw new RuntimeException("Storage node not found, can not deploy " + storageNode);
         }
         storageNode = storageNodes.get(0);
 
