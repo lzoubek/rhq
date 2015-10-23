@@ -144,6 +144,9 @@ def prepareModulesDir(basedir) {
     resource: "$defaultModulesDir/org/rhq/rhq-cassandra-installer"
   )
   ant.symlink(link: "$modulesDir/org/rhq/rhq-server-control", resource: "$defaultModulesDir/org/rhq/rhq-server-control")
+  ant.symlink(link: "$modulesDir/org/rhq/oracle", resource: "$defaultModulesDir/org/rhq/oracle")
+  ant.symlink(link: "$modulesDir/org/rhq/postgres", resource: "$defaultModulesDir/org/rhq/postgres")
+  ant.symlink(link: "$modulesDir/org/rhq/rhq-installer-util", resource: "$defaultModulesDir/org/rhq/rhq-installer-util")
 
   def downloadsDir = "$modulesDir/org/rhq/server-startup/main/deployments/rhq.ear/rhq-downloads"
   ant.mkdir(dir: downloadsDir)
