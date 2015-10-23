@@ -16,6 +16,7 @@ public class ClusterTask {
     private static final String PROP_STATUS = "operationStatus";
     private static final String PROP_OPERATION_NAME = "operationName";
     private static final String PROP_PARAMS = "params";
+    private static final String PROP_ERROR_MESSAGE = "error";
 
     private final PropertyMap backingMap;
 
@@ -89,6 +90,16 @@ public class ClusterTask {
 
     public ClusterTask withOperationName(String operationName) {
         backingMap.put(new PropertySimple(PROP_OPERATION_NAME, operationName));
+        return this;
+    }
+
+    public String getErrorMessage() {
+        PropertySimple prop = this.backingMap.getSimple(PROP_ERROR_MESSAGE);
+        return prop == null ? null : prop.getStringValue();
+    }
+
+    public ClusterTask withErrorMessage(String errorMessage) {
+        backingMap.put(new PropertySimple(PROP_ERROR_MESSAGE, errorMessage));
         return this;
     }
 

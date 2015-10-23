@@ -91,6 +91,7 @@ public class StorageNodeOperationsHandlerBean implements StorageNodeOperationsHa
 
             List<ClusterTask> tasks = ClusterTaskFactory.createAnnounce(clusterNodes, storageNode);
             storageClusterStateManager.scheduleTasks(tasks);
+            storageClusterStateManager.runTasksInNewTx();
 
         } catch (IndexOutOfBoundsException e) {
             String msg = "Aborting storage node deployment due to unexpected error while announcing storage node at "
@@ -117,6 +118,7 @@ public class StorageNodeOperationsHandlerBean implements StorageNodeOperationsHa
         List<StorageNode> clusterNodes = getStorageNodesByMode(StorageNode.OperationMode.NORMAL);
         List<ClusterTask> tasks = ClusterTaskFactory.createUnannounce(clusterNodes, storageNode);
         storageClusterStateManager.scheduleTasks(tasks);
+
     }
 
     @Override
@@ -134,6 +136,7 @@ public class StorageNodeOperationsHandlerBean implements StorageNodeOperationsHa
         log.info("Uninstalling " + storageNode);
         List<ClusterTask> tasks = ClusterTaskFactory.createUninstall(storageNode);
         storageClusterStateManager.scheduleTasks(tasks);
+
     }
 
     @Override
@@ -272,6 +275,7 @@ public class StorageNodeOperationsHandlerBean implements StorageNodeOperationsHa
 
         List<ClusterTask> tasks = ClusterTaskFactory.createRepair(clusterNodes);
         storageClusterStateManager.scheduleTasks(tasks);
+        storageClusterStateManager.runTasksInNewTx();
     }
 
     @Override

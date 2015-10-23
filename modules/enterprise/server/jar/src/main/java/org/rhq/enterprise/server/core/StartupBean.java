@@ -94,6 +94,7 @@ import org.rhq.enterprise.server.scheduler.jobs.PurgeResourceTypesJob;
 import org.rhq.enterprise.server.scheduler.jobs.ReplicationFactorCheckJob;
 import org.rhq.enterprise.server.scheduler.jobs.SavedSearchResultCountRecalculationJob;
 import org.rhq.enterprise.server.scheduler.jobs.StorageClusterReadRepairJob;
+import org.rhq.enterprise.server.scheduler.jobs.StorageClusterTaskExecutorJob;
 import org.rhq.enterprise.server.storage.StorageClientManager;
 import org.rhq.enterprise.server.system.SystemManagerLocal;
 import org.rhq.enterprise.server.util.LookupUtil;
@@ -816,6 +817,15 @@ public class StartupBean implements StartupLocal {
                 interval);
         } catch (Exception e) {
             log.error("Cannot schedule Storage cluster replication factor check job.", e);
+        }
+
+        // Storage cluster task executor
+        try {
+            final long initialDelay = 1000L * 60; // 1m
+            final long interval = 1000L * 60 * 1; // 5 mins
+            schedulerBean.scheduleSimpleRepeatingJob(StorageClusterTaskExecutorJob.class, true, false, initialDelay, interval);
+        } catch (Exception e) {
+            log.error("Cannot schedule Storage cluster Task Executor job.", e);
         }
     }
 

@@ -34,6 +34,7 @@ public class ClusterTaskFactory {
     public static String OP_NODE_MAINTENANCE_REMOVED = "#handleDecomission";
     public static String OP_NODE_UNANNOUNCED = "#handleUnannounced";
     public static String OP_NODE_REMOVED = "#handleRemoved";
+    public static String OP_NODE_DISCOVERY = "#discovery";
     
     private static final int LONG_RUNNING_OPERATION_TIMEOUT = Days.SEVEN.toStandardSeconds().getSeconds();
     
@@ -88,6 +89,13 @@ public class ClusterTaskFactory {
             .withParams(list.closeList().build()));
         
         tasks.add(createSetModeTask(storageNode, OperationMode.ADD_MAINTENANCE));
+        
+        tasks.add(new ClusterTask()
+            .withDescription("Run discovery on "+storageNode.getAddress())
+            .withOperationName(OP_NODE_DISCOVERY)
+            .withStorageNodeId(storageNode.getId())
+            .withResourceId(storageNode.getResource().getId())
+        );
 
         tasks.add(new ClusterTask()
             .withOperationName(OP_NODE_BOOTSTRAPPED)
@@ -113,7 +121,6 @@ public class ClusterTaskFactory {
         allNodes.add(newNode);
         allNodes.addAll(storageNodes);
         // for each node schedule
-        // TODO need to run discovery so we can find rhq Keyspace resource!!
         // 1. repair (if needed)
         // 2. cleanup (always)
         // 3. udpateSeedList
@@ -204,7 +211,7 @@ public class ClusterTaskFactory {
         for (StorageNode node : clusterNodes) {
             tasks.add(new ClusterTask()
                 .withStorageNodeId(node.getId())
-                .withDescription("Run [unannounce] on "+node.getAddress())
+                .withDescription("Run unannounce leaving node " + leaving.getAddress() + " on " + node.getAddress())
                 .withOperationName("unannounce")
                 .withParams(list.closeList().build())
                 );
@@ -264,7 +271,8 @@ public class ClusterTaskFactory {
             .closeList()
             .build();
         return new ClusterTask()
-            .withDescription("Announce new StorageNode "+announced.getAddress()+" to node "+node.getAddress())
+            .withDescription(
+                "Announce new StorageNode " + announced.getAddress() + " to existing node " + node.getAddress())
             .withOperationName("announce")
             .withParams(parameters)
             .withStorageNodeId(node.getId());
@@ -276,7 +284,7 @@ public class ClusterTaskFactory {
             .build();
 
         return new ClusterTask()
-            .withDescription("Run repair on " + node.getAddress())
+            .withDescription("Run "+operationName+" on " + node.getAddress())
             .withParams(parameters)
             .withOperationName(operationName)
             .withStorageNodeId(node.getId());

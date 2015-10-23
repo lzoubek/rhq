@@ -36,6 +36,7 @@ import org.rhq.enterprise.server.auth.SubjectManagerLocal;
 import org.rhq.enterprise.server.authz.RequiredPermission;
 import org.rhq.enterprise.server.configuration.ConfigurationManagerLocal;
 import org.rhq.enterprise.server.operation.OperationManagerLocal;
+import org.rhq.enterprise.server.resource.ResourceManagerLocal;
 import org.rhq.enterprise.server.resource.ResourceNotFoundException;
 import org.rhq.enterprise.server.storage.StorageClusterSettingsManagerLocal;
 import org.rhq.enterprise.server.storage.StorageNodeOperationsHandlerLocal;
@@ -70,6 +71,9 @@ public class StorageClusterStateManagerBean implements StorageClusterStateManage
     private SubjectManagerLocal subjectManager;
 
     @EJB
+    private ResourceManagerLocal resourceManager;
+
+    @EJB
     private StorageClusterStateManagerLocal self;
 
     @PersistenceContext(unitName = RHQConstants.PERSISTENCE_UNIT_NAME)
@@ -87,8 +91,14 @@ public class StorageClusterStateManagerBean implements StorageClusterStateManage
         return state;
     }
 
-    private void pollTask(StorageClusterState state) {
-        state.pollTask();
+    public StorageClusterState pollTask() {
+        StorageClusterState state = loadState();
+        ClusterTask task = state.pollTask();
+        if (task != null) {
+            debug("Removing task config: " + task.getBackingMap());
+            entityManager.remove(task.getBackingMap());
+        }
+        return state;
     }
 
     private StorageClusterState loadState() {
@@ -113,53 +123,71 @@ public class StorageClusterStateManagerBean implements StorageClusterStateManage
 
     private void saveState(StorageClusterState state) {
         state.setLastUpdate();
-        // persist new tasks and it it's new values
+        // configurations were never designed to support "adding" properties
+        // we need to persist new tasks and it it's new values
         for (Property p : state.getConfig().getList("queue").getList()) {
             if (p.getId() <= 0) {
+                // persist task map
                 entityManager.persist(p);
 
             } else {
                 PropertyMap map = (PropertyMap) p;
                 for (Property pp : map.getMap().values()) {
                     if (pp.getId() <= 0) {
+                        // persist new task property
                         entityManager.persist(pp);
                     }
                 }
             }
-
         }
         entityManager.merge(state.getConfig());
+        entityManager.flush();
     }
 
     @Override
     @RequiredPermission(Permission.MANAGE_SETTINGS)
+    @TransactionAttribute(TransactionAttributeType.REQUIRES_NEW)
     public StorageClusterState getState(Subject subject) {
         StorageClusterState state = loadState();
         return state;
     }
 
+    @TransactionAttribute(TransactionAttributeType.REQUIRES_NEW)
+    public StorageClusterState updateState(StorageClusterState state) {
+        saveState(state);
+        return state;
+    }
+
     @Override
-    public void runTasks(boolean force) {
+    public void runTasksInNewTx() {
+        while (runTasks(false)) {
+
+        }
+    }
+
+    @Override
+    @TransactionAttribute(TransactionAttributeType.REQUIRES_NEW)
+    public boolean runTasks(boolean force) {
         debug("Running Storage Cluster tasks");
         StorageClusterState state = loadState();
         ClusterTask task = state.peekTask();
         if (task == null) {
             // nothing to do
             debug("Task queue is empty - nothing to do");
-            return;
+            return false;
         }
         if (!force) {
             if (OperationRequestStatus.INPROGRESS.equals(task.getStatus())) {
-                debug("Task " + task + " is " + OperationRequestStatus.INPROGRESS + " exitting");
-                return;
+                debug("Task " + task + " is " + OperationRequestStatus.INPROGRESS + " - exitting");
+                return false;
             }
-            if (OperationRequestStatus.FAILURE.equals(task.getStatus())) {
+            if (OperationRequestStatus.FAILURE.equals(task.getStatus())
+                || OperationRequestStatus.CANCELED.equals(task.getStatus())) {
                 // TODO maybe we can implement re-try logic?
                 log.error("Task " + task + " has failed, Admin intervention needed!");
-                return;
+                return false;
             }
         }
-
         if (task.getStatus() == null || force) {
             // we're either scheduling new task
             // or forced to re-schedule Failed or Running task
@@ -171,22 +199,23 @@ public class StorageClusterStateManagerBean implements StorageClusterStateManage
             }
             if (task.getOperationName().startsWith(NON_RESOURCE_OPERATION_PREFIX)) {
                 debug("Running non-resource task");
-                // mark non-resource task as INPROGRESS
-                self.setFirstTaskRunning();
+                // mark task as INPROGRESS
+                //self.setFirstTaskRunning(null);
                 try {
                     runNonResourceOperation(state, task, storageNode);
                 } catch (Exception e) {
                     log.error("Failed to run non-resource task", e);
                     task.withStatus(OperationRequestStatus.FAILURE)
-                        .addDescription(" failed: "+e.getMessage());
+                        .withErrorMessage("Failed to run non-resource task: "+e.getMessage());
+                    return false;
                 }
-                return;
+                return true;
             }
             if (storageNode == null) {
                 // storageNode *MUST* exist for resource operations
                 task.withStatus(OperationRequestStatus.FAILURE)
-                    .withDescription("Could not find StorageNode by id="+task.getStorageNodeId());
-                    return;
+                    .withErrorMessage("Could not find StorageNode by id="+task.getStorageNodeId());
+                return false;
             }
             debug("Scheduling resource operation");
             Resource resource = null;
@@ -198,76 +227,82 @@ public class StorageClusterStateManagerBean implements StorageClusterStateManage
                     resource = LookupUtil.getResourceManager().getResource(overlord, task.getResourceId());
                 } catch (ResourceNotFoundException rnf) {
                     log.error("Unable to schedule task " + task + " marking as " + OperationRequestStatus.FAILURE, rnf);
-                    task.withStatus(OperationRequestStatus.FAILURE).withDescription(
-                        "Unable to schedule task " + rnf.getMessage());
+                    task.withStatus(OperationRequestStatus.FAILURE)
+                        .withErrorMessage("Failed to schedule task " + rnf.getMessage());
                     saveState(state);
-                    return;
+                    return false;
                 }
             }
             debug("Checking live availability of " + storageNode);
             if (!storageNodeManager.isStorageNodeAvailable(storageNode)) {
                 log.error(storageNode + " does not appear to be UP");
                 task.withStatus(OperationRequestStatus.FAILURE)
-                    .withDescription("Not scheduling operation, because StorageNode resource does not appear to be UP");
+                    .withErrorMessage("Failed to schedule operation, because StorageNode resource does not appear to be UP");
                 saveState(state);
-                return;
+                return false;
             }
             debug("Scheduling operation");
             int historyId = self.scheduleResourceOperationInNewTx(task, resource);
             debug("Operation scheduled");
-            task.withOperationHistoryId(historyId)
-                .withStatus(OperationRequestStatus.INPROGRESS);
-            saveState(state);
+            setFirstTaskRunning(historyId);
+            return false;
         }
-
+        return false;
     }
 
-    private void runNonResourceOperation(StorageClusterState state, ClusterTask task, StorageNode storageNode) {
+    @TransactionAttribute(TransactionAttributeType.REQUIRES_NEW)
+    public void runNonResourceOperation(StorageClusterState state, ClusterTask task, StorageNode storageNode) {
         if (ClusterTaskFactory.OP_SETMODE.equals(task.getOperationName())) {
             OperationMode mode = OperationMode.valueOf(task.getParams().getSimpleValue("mode"));
             storageNodeOperationsHandler.setMode(storageNode, mode);
-            pollTask(state);
+            pollTask();
             return;
         }
         if (ClusterTaskFactory.OP_SET_CLUSTER_OPERATION_STATUS.equals(task.getOperationName())) {
             OperationStatus mode = OperationStatus.valueOf(task.getParams().getSimpleValue("mode"));
             self.setStatus(null, mode, null);
-            pollTask(state);
+            pollTask();
             return;
         }
         if (ClusterTaskFactory.OP_NODE_ANNOUNCED.equals(task.getOperationName())) {
             log.info("Successfully announced new storage node to storage cluster");
             storageNodeOperationsHandler.bootstrapStorageNode(subjectManager.getOverlord(), storageNode);
-            pollTask(state);
+            pollTask();
             return;
         }
         if (ClusterTaskFactory.OP_NODE_BOOTSTRAPPED.equals(task.getOperationName())) {
             log.info("The prepare for bootstrap operation completed successfully for " + storageNode);
             storageNodeOperationsHandler.performAddMaintenance(subjectManager.getOverlord(), storageNode);
-            pollTask(state);
+            pollTask();
             return;
         }
         if (ClusterTaskFactory.OP_NODE_MAINTENANCE_REMOVED.equals(task.getOperationName())) {
             log.info("Finished running decomission on " + storageNode
                 + " and remove node maintenance on all cluster nodes");
             storageNodeOperationsHandler.unannounceStorageNode(subjectManager.getOverlord(), storageNode);
-            pollTask(state);
+            pollTask();
             return;
         }
         if (ClusterTaskFactory.OP_NODE_UNANNOUNCED.equals(task.getOperationName())) {
             log.info("Successfully unannounced " + storageNode + " to storage cluster");
             storageNodeOperationsHandler.uninstall(subjectManager.getOverlord(), storageNode);
-            pollTask(state);
+            pollTask();
             return;
         }
         if (ClusterTaskFactory.OP_NODE_REMOVED.equals(task.getOperationName())) {
             storageNodeOperationsHandler.finishUninstall(subjectManager.getOverlord(), storageNode);
-            pollTask(state);
+            pollTask();
+            return;
+        }
+        if (ClusterTaskFactory.OP_NODE_DISCOVERY.equals(task.getOperationName())) {
+            resourceManager.executeServiceScanImmediately(subjectManager.getOverlord(), task.getResourceId());
+            pollTask();
             return;
         }
         log.error("Unknown server operation in "+task);
         task.withStatus(OperationRequestStatus.FAILURE)
-            .withDescription(task.getDescription()+" failed : Unknown server operation name");
+            .withErrorMessage("Failed : Unknown server operation name");
+        saveState(state);
     }
 
 
@@ -317,18 +352,19 @@ public class StorageClusterStateManagerBean implements StorageClusterStateManage
         StorageClusterState state = loadState();
         ClusterTask task = state.peekTask();
         if (task.getOperationHistoryId() != null && operationHistory.getId() == task.getOperationHistoryId()) {
-            task.withStatus(operationHistory.getStatus());
-            if (OperationRequestStatus.SUCCESS.equals(task.getStatus())) {
+            if (OperationRequestStatus.SUCCESS.equals(operationHistory.getStatus())) {
                 debug("Task " + task + " successfully completed");
                 // remove from queue
-                pollTask(state);
+                state = self.pollTask();
                 if (state.getTaskQueue().isEmpty()) {
                     state.setOperationStatus(OperationStatus.IDLE);
+                } else {
+                    self.runTasksInNewTx();
                 }
             } else {
                 debug("Task " + task + " failed " + operationHistory);
                 task.withStatus(operationHistory.getStatus())
-                    .addDescription("failed: " + operationHistory.getErrorMessage());
+                    .withErrorMessage("Operation failed: " + operationHistory.getErrorMessage());
             }
         } else {
             log.warn("Unable to handle Resource Operation with " + operationHistory
@@ -359,11 +395,15 @@ public class StorageClusterStateManagerBean implements StorageClusterStateManage
     }
 
     @Override
-    public void setFirstTaskRunning() {
+    public void setFirstTaskRunning(Integer historyId) {
         StorageClusterState state = loadState();
         ClusterTask task = state.peekTask();
         if (task != null) {
             task.withStatus(OperationRequestStatus.INPROGRESS);
+            if (historyId != null) {
+                task.withOperationHistoryId(historyId);
+            }
+            saveState(state);
         }
 
     }
