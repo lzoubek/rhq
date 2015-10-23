@@ -66,6 +66,19 @@
       </results>
     </operation>
 
+    <operation name="cleanup" description="This operation is NOT intended for direct usage. It is part of the
+      deployment process. Please see the storage node deployment documentation for more information.">
+      <results>
+        <c:list-property name="results">
+          <c:map-property name="resultsMap">
+          <c:simple-property name="task" type="string"/>
+          <c:simple-property name="succeeded" type="boolean"/>
+          <c:simple-property name="details" type="string"/>
+        </c:map-property>
+        </c:list-property>
+      </results>
+    </operation>
+
     <operation name="addNodeMaintenance" description="This operation is NOT intended for direct usage. It is part of the
       deployment process. Please see the storage node deployment documentation for more information.">
       <parameters>
