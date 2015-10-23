@@ -1308,5 +1308,10 @@ public class ConfigurationManagerBeanTest extends AbstractEJB3Test {
         @Override
         public void synchronizeServer(int resourceId, Collection<ResourceSyncInfo> toplevelServerSyncInfo) {
         }
+
+        @Override
+        public InventoryReport executeServiceScanImmediately(int resourceId) throws PluginContainerException {
+            return null;
+        }
     }
 }

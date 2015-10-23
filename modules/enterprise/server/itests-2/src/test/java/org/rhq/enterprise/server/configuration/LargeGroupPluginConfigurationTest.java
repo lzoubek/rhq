@@ -252,5 +252,10 @@ public class LargeGroupPluginConfigurationTest extends LargeGroupTestBase {
         public void synchronizeServer(int resourceId, Collection<ResourceSyncInfo> toplevelServerSyncInfo) {
         }
 
+        @Override
+        public InventoryReport executeServiceScanImmediately(int resourceId) throws PluginContainerException {
+            return null;
+        }
+
     }
 }

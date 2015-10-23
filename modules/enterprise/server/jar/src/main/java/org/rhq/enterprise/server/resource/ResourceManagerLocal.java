@@ -499,4 +499,6 @@ public interface ResourceManagerLocal extends ResourceManagerRemote {
 
     PageList<Resource> findGroupMemberCandidateResources(Subject subject, ResourceCriteria criteria,
         int[] alreadySelectedResourceIds);
+
+    void executeServiceScanImmediately(Subject subject, int resourceId);
 }

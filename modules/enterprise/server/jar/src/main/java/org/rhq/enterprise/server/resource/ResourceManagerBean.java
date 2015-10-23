@@ -58,6 +58,7 @@ import org.quartz.Scheduler;
 import org.quartz.SchedulerException;
 import org.quartz.SimpleTrigger;
 
+import org.rhq.core.clientapi.agent.PluginContainerException;
 import org.rhq.core.db.DatabaseType;
 import org.rhq.core.db.DatabaseTypeFactory;
 import org.rhq.core.domain.alert.Alert;
@@ -3193,5 +3194,18 @@ public class ResourceManagerBean implements ResourceManagerLocal, ResourceManage
             }
         }
         return result;
+    }
+
+    @Override
+    public void executeServiceScanImmediately(Subject subject, int resourceId) {
+        AgentClient agent = agentManager.getAgentClient(subject, resourceId);
+        if (agent.pingService(5000L)) {
+            try {
+                agent.getDiscoveryAgentService().executeServiceScanImmediately(resourceId);
+            } catch (PluginContainerException e) {
+                LOG.error("Failed to execute service discovery on resource " + resourceId, e);
+            }
+        }
+
     }
 }

@@ -313,6 +313,11 @@ public class TestAgentClient implements AgentClient, BundleAgentService, DriftAg
     }
 
     @Override
+    public InventoryReport executeServiceScanImmediately(int resourceId) throws PluginContainerException {
+        return null;
+    }
+
+    @Override
     public boolean executeServiceScanDeferred() {
         return true;
     }

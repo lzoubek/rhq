@@ -29,7 +29,9 @@ import org.rhq.core.domain.discovery.AvailabilityReport;
 import org.rhq.core.domain.discovery.MergeResourceResponse;
 import org.rhq.core.domain.discovery.PlatformSyncInfo;
 import org.rhq.core.domain.discovery.ResourceSyncInfo;
+import org.rhq.core.domain.measurement.AvailabilityType;
 import org.rhq.core.domain.resource.Resource;
+import org.rhq.core.domain.resource.ResourceError;
 import org.rhq.core.domain.resource.ResourceType;
 
 /**
@@ -94,6 +96,16 @@ public interface DiscoveryAgentService {
      */
     @NotNull
     InventoryReport executeServiceScanImmediately() throws PluginContainerException;
+
+    /**
+     * Executes an immediate plugin discovery scan for services rooted at specified resource.
+     *
+     * @return the inventory report
+     *
+     * @throws PluginContainerException if the service scan fails
+     */
+    @NotNull
+    InventoryReport executeServiceScanImmediately(int resourceId) throws PluginContainerException;
 
     /**
      * This method asks that a service scan be performed, but it does not wait for the results of that scan. The

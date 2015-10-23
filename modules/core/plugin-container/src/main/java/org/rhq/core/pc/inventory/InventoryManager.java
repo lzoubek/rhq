@@ -760,6 +760,12 @@ public class InventoryManager extends AgentService implements ContainerService, 
         return submit(serviceScanExecutor);
     }
 
+    @Override
+    public InventoryReport executeServiceScanImmediately(int resourceId) throws PluginContainerException {
+        Resource resource = getResourceContainer(resourceId).getResource();
+        return executeServiceScanImmediately(resource);
+    }
+
     @NotNull
     public InventoryReport executeServiceScanImmediately(Resource resource) {
         RuntimeDiscoveryExecutor discoveryExecutor = new RuntimeDiscoveryExecutor(this, this.configuration, resource);
